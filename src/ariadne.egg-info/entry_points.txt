@@ -1,0 +1,2 @@
+[console_scripts]
+ariadne = ariadne_index.cli:app

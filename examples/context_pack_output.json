@@ -1,0 +1,48 @@
+{
+  "repo": "sample-repo",
+  "files": [
+    {
+      "id": 14,
+      "path": "app/enrollment_sync.py",
+      "language": "python",
+      "summary": "Python module enrollment_sync.py with 4 top-level symbols and 2 imports.",
+      "why": "lexical match on path or summary"
+    },
+    {
+      "id": 19,
+      "path": "tests/test_enrollment_sync.py",
+      "language": "python",
+      "summary": "Python module test_enrollment_sync.py with 3 top-level symbols and 1 imports.",
+      "why": "graph expansion via FILE_CONTAINS_SYMBOL"
+    }
+  ],
+  "symbols": [
+    {
+      "id": 41,
+      "file_id": 14,
+      "qualified_name": "retry_enrollment",
+      "type": "function",
+      "lines": [12, 38],
+      "summary": "Python callable retry_enrollment",
+      "why": "lexical match on symbol metadata"
+    }
+  ],
+  "memories": [
+    {
+      "id": 7,
+      "title": "Retry budget must stay bounded",
+      "type": "decision",
+      "status": "active",
+      "summary": "Enrollment sync retries are capped to avoid duplicate upstream enrollment writes.",
+      "why": "memory text matched query"
+    }
+  ],
+  "snippets": [
+    {
+      "file": "app/enrollment_sync.py",
+      "symbol": "retry_enrollment",
+      "lines": [12, 38],
+      "code": "def retry_enrollment(client, payload, attempts=3):\n    for attempt in range(attempts):\n        ..."
+    }
+  ]
+}

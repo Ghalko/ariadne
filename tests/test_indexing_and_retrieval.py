@@ -1,0 +1,54 @@
+from __future__ import annotations
+
+from ariadne_index.bootstrap import build_services
+from ariadne_index.schemas import MemoryCreate, MemoryLinkCreate, RepoCreate
+
+
+def test_index_repo_extracts_files_and_symbols(db_session, sample_repo) -> None:
+    services = build_services(db_session)
+    repo = services["repos"].add_repo(RepoCreate(name="sample", local_path=str(sample_repo)))
+    result = services["indexing"].index_repo(repo)
+
+    assert result["discovered"] == 4
+    assert result["indexed"] == 4
+
+    search = services["retrieval"].lexical.search("retry", repo_id=repo.id)
+    assert any(file.path == "app/service.py" for file in search["files"])
+    assert any(symbol.qualified_name == "retry_logic" for symbol in search["symbols"])
+
+
+def test_retrieve_includes_memory_context(db_session, sample_repo) -> None:
+    services = build_services(db_session)
+    repo = services["repos"].add_repo(RepoCreate(name="sample", local_path=str(sample_repo)))
+    services["indexing"].index_repo(repo)
+
+    search = services["retrieval"].lexical.search("retry_logic", repo_id=repo.id)
+    symbol = next(symbol for symbol in search["symbols"] if symbol.qualified_name == "retry_logic")
+
+    memory = services["memory"].create_memory(
+        MemoryCreate(
+            repo_id=repo.id,
+            title="Retry budget stays capped",
+            content="Enrollment retry_logic must stay capped at three attempts to avoid duplicate writes.",
+            summary="Keep retry budget bounded for enrollment sync.",
+            memory_type="decision",
+        )
+    )
+    services["memory"].link_memory(
+        MemoryLinkCreate(
+            from_memory_id=memory.id,
+            to_node_kind="symbol",
+            to_node_id=symbol.id,
+            edge_type="APPLIES_TO",
+        )
+    )
+
+    payload = services["retrieval"].retrieve(
+        query="refactor retry logic and surface prior decisions",
+        mode="refactor",
+        repo=repo,
+    )
+
+    assert payload["context"]["symbols"]
+    assert any(item["title"] == "Retry budget stays capped" for item in payload["context"]["memories"])
+    assert any(snippet["symbol"] == "retry_logic" for snippet in payload["context"]["snippets"])

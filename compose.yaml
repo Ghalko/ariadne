@@ -1,0 +1,27 @@
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: db/postgres/Dockerfile
+      args:
+        PGVECTOR_VERSION: ${PGVECTOR_VERSION:-0.8.1}
+    image: ariadne-postgres:pg17
+    container_name: ariadne-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ariadne}
+      POSTGRES_USER: ${POSTGRES_USER:-ariadne}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ariadne}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ariadne_postgres_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ariadne} -d ${POSTGRES_DB:-ariadne}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  ariadne_postgres_data:
