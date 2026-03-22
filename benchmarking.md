@@ -1,3 +1,13 @@
+## Recommended Order
+
+1. Add a tiny internal fixture repo for fast, deterministic evaluation.
+2. Add a labeled query set with gold files, symbols, tests, docs, and memories.
+3. Build a retrieval-only benchmark runner with recall@k, precision@k, and MRR.
+4. Add packed-context checks, including token estimates and compactness thresholds.
+5. Add stage-level retrieval observability: timings, candidate counts, and stage provenance.
+6. Add synthetic incremental-indexing benchmarks.
+7. Only after that, connect Ariadne to public benchmarks like RepoBench, CrossCodeEval, and SWE-bench variants.
+
 Yes. And I’d be a little stricter than “pick a few repos and vibe-check it.”
 
 If you want an **objective answer** for whether your indexing is better, use **benchmarks with known tasks**, then add a **small hand-built harness** on top.
