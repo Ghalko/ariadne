@@ -124,7 +124,7 @@ def upgrade() -> None:
                "embedding_role VARCHAR(64) NOT NULL, "
                "model_name VARCHAR(255) NOT NULL, "
                "dimensions INTEGER NOT NULL, "
-               "vector vector(24) NOT NULL, "
+               "vector vector(1024) NOT NULL, "
                "content_preview TEXT, "
                "created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, "
                "CONSTRAINT uq_embedding_node_role UNIQUE (node_kind, node_id, embedding_role))")

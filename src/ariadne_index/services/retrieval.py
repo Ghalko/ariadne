@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from ariadne_index.models.entities import Embedding, FileRecord, Memory, Repo, RetrievalLog, SymbolRecord
 from ariadne_index.models.enums import EdgeType, MemoryStatus
 from ariadne_index.services.context_packing import ContextPacker
-from ariadne_index.services.embeddings import DeterministicEmbeddingProvider, cosine_similarity
+from ariadne_index.services.embeddings import EmbeddingProvider, cosine_similarity
 from ariadne_index.services.graph import GraphService
 from ariadne_index.services.lexical import LexicalSearchService
 
@@ -23,7 +23,7 @@ MODE_WEIGHTS = {
 
 
 class RetrievalService:
-    def __init__(self, session: Session, embedder: DeterministicEmbeddingProvider) -> None:
+    def __init__(self, session: Session, embedder: EmbeddingProvider) -> None:
         self.session = session
         self.embedder = embedder
         self.lexical = LexicalSearchService(session)

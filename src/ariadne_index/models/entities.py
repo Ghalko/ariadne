@@ -147,7 +147,7 @@ class Embedding(Base):
     node_kind: Mapped[str] = mapped_column(String(64))
     node_id: Mapped[int] = mapped_column(Integer)
     embedding_role: Mapped[str] = mapped_column(String(64), default="summary")
-    model_name: Mapped[str] = mapped_column(String(255), default="deterministic-local")
+    model_name: Mapped[str] = mapped_column(String(255), default=settings.embedding_model)
     dimensions: Mapped[int] = mapped_column(Integer, default=settings.embedding_dimensions)
     vector: Mapped[list[float]] = mapped_column(EmbeddingType(settings.embedding_dimensions))
     content_preview: Mapped[str | None] = mapped_column(Text)

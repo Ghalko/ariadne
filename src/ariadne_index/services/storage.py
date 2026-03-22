@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from ariadne_index.models.entities import Embedding
-from ariadne_index.services.embeddings import DeterministicEmbeddingProvider
+from ariadne_index.services.embeddings import EmbeddingProvider
 
 
 def upsert_embedding(
@@ -14,7 +14,7 @@ def upsert_embedding(
     node_id: int,
     embedding_role: str,
     content: str,
-    embedder: DeterministicEmbeddingProvider,
+    embedder: EmbeddingProvider,
 ) -> Embedding:
     vector = embedder.embed(content)
     embedding = (

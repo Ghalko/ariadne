@@ -7,14 +7,14 @@ from sqlalchemy.orm import Session
 from ariadne_index.models.entities import FileRecord, Repo, SymbolRecord
 from ariadne_index.models.enums import EdgeType
 from ariadne_index.parsers.registry import ParserRegistry
-from ariadne_index.services.embeddings import DeterministicEmbeddingProvider
+from ariadne_index.services.embeddings import EmbeddingProvider
 from ariadne_index.services.filesystem import discover_files, sha256_text
 from ariadne_index.services.graph import GraphService
 from ariadne_index.services.storage import upsert_embedding
 
 
 class IndexingService:
-    def __init__(self, session: Session, embedder: DeterministicEmbeddingProvider) -> None:
+    def __init__(self, session: Session, embedder: EmbeddingProvider) -> None:
         self.session = session
         self.embedder = embedder
         self.parsers = ParserRegistry()

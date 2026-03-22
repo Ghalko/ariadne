@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,7 +11,13 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ARIADNE_", env_file=".env", extra="ignore")
 
     database_url: str = Field(default="sqlite+pysqlite:///:memory:")
-    embedding_dimensions: int = Field(default=24)
+    embedding_provider: str = Field(default="auto")
+    embedding_model: str = Field(default="text-embedding-3-small")
+    embedding_dimensions: int = Field(default=1024)
+    openai_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("OPENAI_API_KEY", "ARIADNE_OPENAI_API_KEY"),
+    )
     default_include_globs: list[str] = Field(
         default_factory=lambda: [
             "**/*.py",

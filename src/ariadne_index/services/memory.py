@@ -5,13 +5,13 @@ from sqlalchemy.orm import Session
 from ariadne_index.models.entities import Memory
 from ariadne_index.models.enums import EdgeType
 from ariadne_index.schemas import MemoryCreate, MemoryLinkCreate
-from ariadne_index.services.embeddings import DeterministicEmbeddingProvider
+from ariadne_index.services.embeddings import EmbeddingProvider
 from ariadne_index.services.graph import GraphService
 from ariadne_index.services.storage import upsert_embedding
 
 
 class MemoryService:
-    def __init__(self, session: Session, embedder: DeterministicEmbeddingProvider) -> None:
+    def __init__(self, session: Session, embedder: EmbeddingProvider) -> None:
         self.session = session
         self.embedder = embedder
         self.graph = GraphService(session)

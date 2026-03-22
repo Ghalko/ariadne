@@ -18,16 +18,47 @@ A local-first repository index for AI coding workflows backed by Postgres, `pgve
 - `examples/`: example packed-context output
 - `tests/`: indexing and retrieval tests
 
+## Install Podman
+
+For macOS, install Podman before starting Postgres.
+
+Recommended:
+
+- Download the official macOS installer from Podman: <https://podman.io/docs/installation>
+
+Homebrew alternative:
+
+```bash
+brew install podman
+```
+
+Install a Compose provider too:
+
+```bash
+brew install podman-compose
+```
+
+After installing Podman on macOS, initialize and start the Podman machine:
+
+```bash
+podman machine init
+podman machine start
+podman info
+podman compose version
+```
+
 ## Quick Start
 
 ```bash
 uv python install 3.14
-uv sync --python 3.14 --extra dev --extra postgres --extra treesitter
-uv run --python 3.14 alembic upgrade head
-uv run --python 3.14 ariadne add-repo /path/to/repo --name repo-name
-uv run --python 3.14 ariadne index repo-name
-uv run --python 3.14 ariadne retrieve "refactor retry logic" --mode refactor
-uv run --python 3.14 uvicorn ariadne_index.api:app --reload
+uv venv --python 3.14
+source .venv/bin/activate
+uv sync --extra dev --extra postgres --extra treesitter
+alembic upgrade head
+ariadne add-repo /path/to/repo --name repo-name
+ariadne index repo-name
+ariadne retrieve "refactor retry logic" --mode refactor
+uvicorn ariadne_index.api:app --reload
 ```
 
 ## Podman Postgres
@@ -35,6 +66,20 @@ uv run --python 3.14 uvicorn ariadne_index.api:app --reload
 This repo includes a Podman-first container setup for local Postgres with `pgvector`.
 The database image is built locally from the AWS ECR Public Postgres base image
 `public.ecr.aws/docker/library/postgres:17-bookworm`, then `pgvector` is installed during the build.
+
+Development connection defaults:
+
+- Database: `ariadne`
+- User: `ariadne`
+- Password: `ariadne`
+- Host: `127.0.0.1`
+- Port: `5432`
+
+Embedding defaults:
+
+- Provider: `openai` when `OPENAI_API_KEY` is set, otherwise deterministic local fallback
+- Model: `text-embedding-3-small`
+- Dimensions: `1024`
 
 ```bash
 cp .env.example .env
@@ -47,12 +92,14 @@ podman compose up -d postgres
 podman compose ps
 
 uv python install 3.14
-uv sync --python 3.14 --extra dev --extra postgres --extra treesitter
+uv venv --python 3.14
+source .venv/bin/activate
+uv sync --extra dev --extra postgres --extra treesitter
 
-uv run --python 3.14 alembic upgrade head
-uv run --python 3.14 ariadne add-repo /path/to/repo --name repo-name
-uv run --python 3.14 ariadne index repo-name
-uv run --python 3.14 ariadne retrieve "refactor retry logic" --mode refactor --repo-name repo-name
+alembic upgrade head
+ariadne add-repo /path/to/repo --name repo-name
+ariadne index repo-name
+ariadne retrieve "refactor retry logic" --mode refactor --repo-name repo-name
 ```
 
 Useful Podman commands:
@@ -64,14 +111,29 @@ podman compose logs -f postgres
 podman exec -it ariadne-postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"
 ```
 
+If `podman compose` still does not find a provider, run the provider directly:
+
+```bash
+podman-compose build postgres
+podman-compose up -d postgres
+podman-compose ps
+```
+
 Useful `uv` commands:
 
 ```bash
-uv sync --python 3.14 --extra dev --extra postgres --extra treesitter
+uv sync --extra dev --extra postgres --extra treesitter
+pytest -q
+ariadne repos
+ariadne pack-context "refactor retry logic" --mode refactor --repo-name repo-name
+uvicorn ariadne_index.api:app --reload
+```
+
+If you do not want to activate the virtualenv, use `uv run` instead:
+
+```bash
+uv run --python 3.14 ariadne --help
 uv run --python 3.14 pytest -q
-uv run --python 3.14 ariadne repos
-uv run --python 3.14 ariadne pack-context "refactor retry logic" --mode refactor --repo-name repo-name
-uv run --python 3.14 uvicorn ariadne_index.api:app --reload
 ```
 
 Verify `pgvector` is enabled:
@@ -86,5 +148,7 @@ SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';
 - Tests use SQLite with a fallback embedding column implementation.
 - Tree-sitter integration is optional at runtime and falls back to heuristic extraction where unavailable.
 - `compose.yaml` uses the standard Compose format but is intended to be run with `podman compose`.
+- `podman compose` requires an external compose provider such as `podman-compose`; it is not a built-in compose engine.
 - The Postgres base image is AWS-hosted; `pgvector` is compiled into that image at build time.
-- Use `uv python install 3.14` and `uv run --python 3.14 ...` instead of relying on a system-managed Python.
+- Use `uv python install 3.14`, `uv venv --python 3.14`, and `source .venv/bin/activate` for the normal interactive workflow.
+- If you created an older local database with 24-dimensional embeddings, recreate it before switching to the new 1024-dimensional OpenAI setup.

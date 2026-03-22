@@ -3,11 +3,27 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from ariadne_index.config import get_settings
-from ariadne_index.services.embeddings import DeterministicEmbeddingProvider
+from ariadne_index.services.embeddings import (
+    DeterministicEmbeddingProvider,
+    EmbeddingProvider,
+    OpenAIEmbeddingProvider,
+)
 
 
-def build_embedder() -> DeterministicEmbeddingProvider:
+def build_embedder() -> EmbeddingProvider:
     settings = get_settings()
+    provider = settings.embedding_provider.lower()
+
+    if provider in {"auto", "openai"} and settings.openai_api_key:
+        return OpenAIEmbeddingProvider(
+            api_key=settings.openai_api_key,
+            model_name=settings.embedding_model,
+            dimensions=settings.embedding_dimensions,
+        )
+
+    if provider == "openai" and not settings.openai_api_key:
+        raise ValueError("OPENAI_API_KEY is required when ARIADNE_EMBEDDING_PROVIDER=openai")
+
     return DeterministicEmbeddingProvider(dimensions=settings.embedding_dimensions)
 
 

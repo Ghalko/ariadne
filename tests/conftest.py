@@ -4,7 +4,17 @@ from pathlib import Path
 
 import pytest
 
+from ariadne_index.config import get_settings
 from ariadne_index.db import init_database, session_scope
+
+
+@pytest.fixture(autouse=True)
+def deterministic_embeddings(monkeypatch):
+    monkeypatch.setenv("ARIADNE_EMBEDDING_PROVIDER", "deterministic")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture()
