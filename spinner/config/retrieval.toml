@@ -1,0 +1,8 @@
+[retrieval]
+top_k = 8
+graph_hops = 1
+summary_first = true
+
+[context]
+max_snippets = 3
+estimate_tokens = true

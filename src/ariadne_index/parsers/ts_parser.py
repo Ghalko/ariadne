@@ -24,73 +24,78 @@ class TypeScriptParser:
     def parse(self, path: Path, content: str) -> ParsedFile:
         language = FileLanguage.typescript if path.suffix in {".ts", ".tsx"} else FileLanguage.javascript
         parsed = self._parse_with_tree_sitter(path, content, language)
-        if parsed is not None:
+        if parsed is not None and parsed.symbols:
             return parsed
         return self._parse_with_regex(path, content, language)
 
     def _parse_with_tree_sitter(self, path: Path, content: str, language: FileLanguage) -> ParsedFile | None:
         if get_parser is None:
             return None
-        parser = get_parser("typescript" if language == FileLanguage.typescript else "javascript")
-        tree = parser.parse(content.encode("utf-8"))
-        root = tree.root_node
-        symbols: list[ParsedSymbol] = []
-        imports: list[str] = []
+        try:
+            parser = get_parser("typescript" if language == FileLanguage.typescript else "javascript")
+            tree = parser.parse(content.encode("utf-8"))
+            root = tree.root_node
+            symbols: list[ParsedSymbol] = []
+            imports: list[str] = []
 
-        for child in root.children:
-            if child.type == "import_statement":
-                import_text = content[child.start_byte : child.end_byte]
-                match = IMPORT_RE.search(import_text)
-                if match:
-                    imports.append(match.group(1))
-            elif child.type in {"function_declaration", "class_declaration", "lexical_declaration"}:
+            for child in root.children:
+                snippet = content[child.start_byte : child.end_byte]
+                if child.type == "import_statement":
+                    match = IMPORT_RE.search(snippet)
+                    if match:
+                        imports.append(match.group(1))
+                    continue
+
                 line_start = child.start_point[0] + 1
                 line_end = child.end_point[0] + 1
-                snippet = content[child.start_byte : child.end_byte]
-                if child.type == "function_declaration":
-                    match = FUNCTION_RE.search(snippet)
-                    if match:
-                        name = match.group(1)
-                        params = match.group(2)
-                        symbols.append(
-                            ParsedSymbol(
-                                name=name,
-                                symbol_type="function",
-                                line_start=line_start,
-                                line_end=line_end,
-                                signature=f"function {name}({params})",
-                                qualified_name=name,
-                                summary=f"{language.value.title()} function {name}",
-                            )
+
+                function_match = FUNCTION_RE.search(snippet)
+                if function_match:
+                    name = function_match.group(1)
+                    params = function_match.group(2)
+                    symbols.append(
+                        ParsedSymbol(
+                            name=name,
+                            symbol_type="function",
+                            line_start=line_start,
+                            line_end=line_end,
+                            signature=f"function {name}({params})",
+                            qualified_name=name,
+                            summary=f"{language.value.title()} function {name}",
                         )
-                elif child.type == "class_declaration":
-                    match = CLASS_RE.search(snippet)
-                    if match:
-                        name = match.group(1)
-                        symbols.append(
-                            ParsedSymbol(
-                                name=name,
-                                symbol_type="class",
-                                line_start=line_start,
-                                line_end=line_end,
-                                qualified_name=name,
-                                summary=f"{language.value.title()} class {name}",
-                            )
+                    )
+                    continue
+
+                class_match = CLASS_RE.search(snippet)
+                if class_match:
+                    name = class_match.group(1)
+                    symbols.append(
+                        ParsedSymbol(
+                            name=name,
+                            symbol_type="class",
+                            line_start=line_start,
+                            line_end=line_end,
+                            qualified_name=name,
+                            summary=f"{language.value.title()} class {name}",
                         )
-                elif child.type == "lexical_declaration":
-                    match = EXPORT_CONST_RE.search(snippet)
-                    if match:
-                        name = match.group(1)
-                        symbols.append(
-                            ParsedSymbol(
-                                name=name,
-                                symbol_type="exported_constant",
-                                line_start=line_start,
-                                line_end=line_end,
-                                qualified_name=name,
-                                summary=f"Exported constant {name}",
-                            )
+                    )
+                    continue
+
+                const_match = EXPORT_CONST_RE.search(snippet)
+                if const_match:
+                    name = const_match.group(1)
+                    symbols.append(
+                        ParsedSymbol(
+                            name=name,
+                            symbol_type="exported_constant",
+                            line_start=line_start,
+                            line_end=line_end,
+                            qualified_name=name,
+                            summary=f"Exported constant {name}",
                         )
+                    )
+        except Exception:  # pragma: no cover - optional parser failures should not break indexing
+            return None
 
         return ParsedFile(
             language=language,

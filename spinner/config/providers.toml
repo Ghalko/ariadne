@@ -1,0 +1,7 @@
+[chat]
+primary = "gpt-5-codex"
+
+[embeddings]
+primary = "text-embedding-3-small"
+fallback = "deterministic-local"
+prefer_deterministic_when_unavailable = true

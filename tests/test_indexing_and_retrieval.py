@@ -9,8 +9,8 @@ def test_index_repo_extracts_files_and_symbols(db_session, sample_repo) -> None:
     repo = services["repos"].add_repo(RepoCreate(name="sample", local_path=str(sample_repo)))
     result = services["indexing"].index_repo(repo)
 
-    assert result["discovered"] == 4
-    assert result["indexed"] == 4
+    assert result["discovered"] == 5
+    assert result["indexed"] == 5
 
     search = services["retrieval"].lexical.search("retry", repo_id=repo.id)
     assert any(file.path == "app/service.py" for file in search["files"])

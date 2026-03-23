@@ -1,0 +1,390 @@
+[
+  {
+    "id": "spinner-provider-fallback-001",
+    "repo": "spinner",
+    "mode": "understand",
+    "query": "Which files govern provider fallback when OpenAI embeddings are unavailable?",
+    "gold_files": [
+      "spinner/providers/embeddings.py",
+      "spinner/providers/openai.py",
+      "spinner/providers/deterministic.py"
+    ],
+    "gold_symbols": [
+      "resolve_embedding_provider",
+      "load_openai_settings",
+      "deterministic_embedding_name"
+    ],
+    "gold_tests": [
+      "tests/unit/test_provider_fallback.py"
+    ],
+    "gold_docs": [
+      "docs/adr/003-provider-fallback-strategy.md",
+      "docs/runbooks/provider-rate-limit-response.md",
+      "config/providers.toml"
+    ],
+    "gold_memories": [
+      "ADR 003: Provider Fallback Strategy",
+      "Provider Rate Limit Response"
+    ],
+    "max_context_items": 8,
+    "requires_graph": true,
+    "requires_memory": true,
+    "requires_config": true,
+    "requires_test_expansion": true,
+    "notes": "Should connect runtime provider logic, operational runbook, and provider config."
+  },
+  {
+    "id": "spinner-patch-rollback-002",
+    "repo": "spinner",
+    "mode": "refactor",
+    "query": "Refactor patch rollback behavior and surface any decisions or runbooks that matter.",
+    "gold_files": [
+      "spinner/patching/rollback.py",
+      "spinner/patching/apply.py",
+      "spinner/patching/validation.py",
+      "spinner/agent/planner.py"
+    ],
+    "gold_symbols": [
+      "rollback_message",
+      "apply_patch_plan",
+      "validate_patch_plan",
+      "build_plan"
+    ],
+    "gold_tests": [
+      "tests/integration/test_runtime_flow.py"
+    ],
+    "gold_docs": [
+      "docs/adr/004-patch-rollback-policy.md",
+      "docs/runbooks/patch-apply-failures.md"
+    ],
+    "gold_memories": [
+      "ADR 004: Patch Rollback Policy",
+      "Patch Apply Failures"
+    ],
+    "max_context_items": 9,
+    "requires_graph": true,
+    "requires_memory": true,
+    "requires_config": false,
+    "requires_test_expansion": true,
+    "notes": "A strong refactor task that should pull in both code and operational context."
+  },
+  {
+    "id": "spinner-token-budget-003",
+    "repo": "spinner",
+    "mode": "refactor",
+    "query": "Change token budgeting and keep context packing compact.",
+    "gold_files": [
+      "spinner/context/token_budget.py",
+      "spinner/context/packer.py",
+      "spinner/context/modes.py",
+      "spinner/context/snippets.py"
+    ],
+    "gold_symbols": [
+      "estimate_tokens",
+      "fits_budget",
+      "pack_context",
+      "token_limit_for_mode",
+      "pick_snippets"
+    ],
+    "gold_tests": [
+      "tests/unit/test_token_budget.py"
+    ],
+    "gold_docs": [
+      "docs/adr/001-summary-first-context.md",
+      "config/retrieval.toml"
+    ],
+    "gold_memories": [
+      "ADR 001: Summary-First Context"
+    ],
+    "max_context_items": 7,
+    "requires_graph": true,
+    "requires_memory": true,
+    "requires_config": true,
+    "requires_test_expansion": true,
+    "notes": "Should expose context packing, budget calculation, and summary-first policy together."
+  },
+  {
+    "id": "spinner-retrieval-order-004",
+    "repo": "spinner",
+    "mode": "understand",
+    "query": "Where is the retrieval stage order defined?",
+    "gold_files": [
+      "spinner/retrieval/pipeline.py",
+      "spinner/retrieval/lexical.py",
+      "spinner/retrieval/semantic.py",
+      "spinner/retrieval/graph.py",
+      "spinner/retrieval/ranking.py"
+    ],
+    "gold_symbols": [
+      "retrieve",
+      "lexical_candidates",
+      "semantic_candidates",
+      "graph_expand",
+      "rank_candidates"
+    ],
+    "gold_tests": [],
+    "gold_docs": [
+      "docs/architecture/retrieval-flow.md",
+      "docs/adr/001-summary-first-context.md"
+    ],
+    "gold_memories": [
+      "Retrieval Flow"
+    ],
+    "max_context_items": 8,
+    "requires_graph": false,
+    "requires_memory": true,
+    "requires_config": false,
+    "requires_test_expansion": false,
+    "notes": "Basic retrieval understanding query with architecture documentation attached."
+  },
+  {
+    "id": "spinner-session-replay-005",
+    "repo": "spinner",
+    "mode": "bugfix",
+    "query": "Find the session replay and stored run history path.",
+    "gold_files": [
+      "spinner/sessions/store.py",
+      "spinner/sessions/history.py",
+      "spinner/sessions/replay.py",
+      "spinner/agent/runtime.py"
+    ],
+    "gold_symbols": [
+      "record_session_run",
+      "list_runs",
+      "replay_latest",
+      "run"
+    ],
+    "gold_tests": [
+      "tests/integration/test_runtime_flow.py"
+    ],
+    "gold_docs": [],
+    "gold_memories": [],
+    "max_context_items": 6,
+    "requires_graph": true,
+    "requires_memory": false,
+    "requires_config": false,
+    "requires_test_expansion": true,
+    "notes": "Useful for testing runtime-to-session graph expansion."
+  },
+  {
+    "id": "spinner-tool-sandboxing-006",
+    "repo": "spinner",
+    "mode": "architecture",
+    "query": "What prior decision applies to tool sandboxing before changing patch execution?",
+    "gold_files": [
+      "spinner/patching/apply.py",
+      "spinner/patching/validation.py",
+      "spinner/agent/executor.py"
+    ],
+    "gold_symbols": [
+      "apply_patch_plan",
+      "validate_patch_plan",
+      "execute_plan"
+    ],
+    "gold_tests": [],
+    "gold_docs": [
+      "docs/adr/002-tool-sandboxing.md",
+      "docs/adr/004-patch-rollback-policy.md"
+    ],
+    "gold_memories": [
+      "ADR 002: Tool Sandboxing",
+      "ADR 004: Patch Rollback Policy"
+    ],
+    "max_context_items": 7,
+    "requires_graph": true,
+    "requires_memory": true,
+    "requires_config": false,
+    "requires_test_expansion": false,
+    "notes": "Architecture/memory query that should not be answered from code alone."
+  },
+  {
+    "id": "spinner-context-over-budget-007",
+    "repo": "spinner",
+    "mode": "bugfix",
+    "query": "Where does Spinner warn when packed context exceeds the budget?",
+    "gold_files": [
+      "spinner/context/packer.py",
+      "spinner/context/token_budget.py",
+      "spinner/telemetry/incidents.py",
+      "spinner/telemetry/logging.py"
+    ],
+    "gold_symbols": [
+      "pack_context",
+      "estimate_tokens",
+      "maybe_warn_on_large_context",
+      "append_event"
+    ],
+    "gold_tests": [
+      "tests/unit/test_token_budget.py"
+    ],
+    "gold_docs": [
+      "docs/architecture/retrieval-flow.md"
+    ],
+    "gold_memories": [],
+    "max_context_items": 7,
+    "requires_graph": true,
+    "requires_memory": false,
+    "requires_config": false,
+    "requires_test_expansion": true,
+    "notes": "Good bugfix task spanning context and telemetry."
+  },
+  {
+    "id": "spinner-runtime-entry-008",
+    "repo": "spinner",
+    "mode": "understand",
+    "query": "Where is the main runtime entry point for running a coding task?",
+    "gold_files": [
+      "spinner/cli.py",
+      "spinner/agent/runtime.py",
+      "spinner/agent/tasks.py",
+      "spinner/api/routes/tasks.py"
+    ],
+    "gold_symbols": [
+      "main",
+      "run",
+      "classify_task",
+      "run_task_payload"
+    ],
+    "gold_tests": [
+      "tests/integration/test_runtime_flow.py"
+    ],
+    "gold_docs": [
+      "README.md"
+    ],
+    "gold_memories": [],
+    "max_context_items": 6,
+    "requires_graph": true,
+    "requires_memory": false,
+    "requires_config": false,
+    "requires_test_expansion": true,
+    "notes": "Basic top-level navigation task."
+  },
+  {
+    "id": "spinner-workspace-metadata-009",
+    "repo": "spinner",
+    "mode": "understand",
+    "query": "Where does Spinner keep workspace metadata like branch and commit?",
+    "gold_files": [
+      "spinner/workspace/registry.py",
+      "spinner/workspace/status.py",
+      "spinner/models.py"
+    ],
+    "gold_symbols": [
+      "list_workspaces",
+      "get_workspace",
+      "workspace_status",
+      "WorkspaceRecord"
+    ],
+    "gold_tests": [],
+    "gold_docs": [
+      "README.md",
+      "config/spinner.toml"
+    ],
+    "gold_memories": [],
+    "max_context_items": 5,
+    "requires_graph": false,
+    "requires_memory": false,
+    "requires_config": true,
+    "requires_test_expansion": false,
+    "notes": "Simple workspace-discovery task useful as a low-complexity benchmark."
+  },
+  {
+    "id": "spinner-provider-config-010",
+    "repo": "spinner",
+    "mode": "docs",
+    "query": "What config and docs describe provider selection and fallback?",
+    "gold_files": [
+      "spinner/providers/base.py",
+      "spinner/providers/openai.py",
+      "spinner/providers/embeddings.py"
+    ],
+    "gold_symbols": [
+      "ProviderSettings",
+      "load_openai_settings",
+      "resolve_embedding_provider"
+    ],
+    "gold_tests": [
+      "tests/unit/test_provider_fallback.py"
+    ],
+    "gold_docs": [
+      "docs/architecture/provider-abstractions.md",
+      "docs/adr/003-provider-fallback-strategy.md",
+      "config/providers.toml"
+    ],
+    "gold_memories": [
+      "ADR 003: Provider Fallback Strategy",
+      "Provider Abstractions"
+    ],
+    "max_context_items": 8,
+    "requires_graph": true,
+    "requires_memory": true,
+    "requires_config": true,
+    "requires_test_expansion": true,
+    "notes": "Docs-heavy task that should still surface the core provider code."
+  },
+  {
+    "id": "spinner-patch-failure-runbook-011",
+    "repo": "spinner",
+    "mode": "bugfix",
+    "query": "A patch apply failed. What runbook and code paths should I inspect?",
+    "gold_files": [
+      "spinner/patching/apply.py",
+      "spinner/patching/rollback.py",
+      "spinner/patching/validation.py",
+      "spinner/sessions/store.py"
+    ],
+    "gold_symbols": [
+      "apply_patch_plan",
+      "rollback_message",
+      "validate_patch_plan",
+      "record_session_run"
+    ],
+    "gold_tests": [
+      "tests/integration/test_runtime_flow.py"
+    ],
+    "gold_docs": [
+      "docs/runbooks/patch-apply-failures.md",
+      "docs/adr/004-patch-rollback-policy.md"
+    ],
+    "gold_memories": [
+      "Patch Apply Failures",
+      "ADR 004: Patch Rollback Policy"
+    ],
+    "max_context_items": 8,
+    "requires_graph": true,
+    "requires_memory": true,
+    "requires_config": false,
+    "requires_test_expansion": true,
+    "notes": "Strong bugfix task that mixes runbook context with implementation files."
+  },
+  {
+    "id": "spinner-ranking-012",
+    "repo": "spinner",
+    "mode": "refactor",
+    "query": "Change candidate ranking logic without breaking retrieval stage flow.",
+    "gold_files": [
+      "spinner/retrieval/ranking.py",
+      "spinner/retrieval/pipeline.py",
+      "spinner/retrieval/graph.py",
+      "spinner/retrieval/semantic.py"
+    ],
+    "gold_symbols": [
+      "rank_candidates",
+      "retrieve",
+      "graph_expand",
+      "semantic_candidates"
+    ],
+    "gold_tests": [],
+    "gold_docs": [
+      "docs/architecture/retrieval-flow.md",
+      "config/retrieval.toml"
+    ],
+    "gold_memories": [],
+    "max_context_items": 7,
+    "requires_graph": true,
+    "requires_memory": false,
+    "requires_config": true,
+    "requires_test_expansion": false,
+    "notes": "Useful for regression testing retrieval-core refactors."
+  }
+]

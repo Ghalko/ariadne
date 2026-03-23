@@ -77,3 +77,134 @@ Potential extension:
 
 - represent cross-tree or loosely related code groups as memories, conventions, or design notes when the relationship is architectural rather than strictly structural
 - attach those reviewed memory nodes to both code trees instead of forcing a direct code-to-code edge
+
+## Graph Backlog
+
+The current graph is still too shallow for Ariadne's goals. The benchmark results especially suggest that test, doc, config, and memory relationships need to become explicit graph edges rather than remaining heuristic retrieval behavior.
+
+### Priority 1
+
+#### `TEST_COVERS_SYMBOL`
+
+Why:
+
+- current benchmark test hit rate is weak
+- test expansion should be graph-driven, not just lexical
+
+Initial extraction ideas:
+
+- infer from imports in test files
+- infer from `test_<symbol>` naming
+- infer from same-module test file conventions
+
+#### `DOC_DESCRIBES_SYMBOL`
+
+Why:
+
+- docs are mostly retrieved lexically today
+- architecture notes and ADRs should attach to real code nodes
+
+Initial extraction ideas:
+
+- lexical candidate generation
+- semantic candidate generation
+- optional human confirmation before durable persistence
+
+#### `CONFIG_AFFECTS_FILE`
+
+Why:
+
+- config relevance is currently too implicit
+- many coding tasks need to know which configuration shapes runtime behavior
+
+Initial extraction ideas:
+
+- imported config modules
+- explicit config key references
+- path and subsystem conventions
+
+#### Explicit memory-to-code edges
+
+Why:
+
+- memory retrieval should not depend only on text overlap
+- durable historical context is more useful when attached to the exact file, symbol, or subsystem
+
+Initial edge types:
+
+- `APPLIES_TO`
+- `RELATES_TO`
+- `CONSTRAINS`
+- `WARNS_ABOUT`
+
+### Priority 2
+
+#### `SYMBOL_CALLS_SYMBOL`
+
+Why:
+
+- improves refactor and bugfix graph expansion
+- especially helpful for caller/callee queries
+
+Initial extraction ideas:
+
+- conservative AST-based extraction for Python
+- only link when the callee resolves locally with high confidence
+
+#### `SYMBOL_REFERENCES_SYMBOL`
+
+Why:
+
+- captures important non-call relationships
+- useful for constants, shared helpers, provider names, and strategy objects
+
+#### Subsystem nodes
+
+Why:
+
+- many decisions and conventions apply to a subsystem, not a single file
+- subsystem-level retrieval is cleaner than attaching the same memory to many files
+
+Possible edges:
+
+- `FILE_BELONGS_TO_SUBSYSTEM`
+- `SYMBOL_BELONGS_TO_SUBSYSTEM`
+- memory `APPLIES_TO` subsystem
+
+### Priority 3
+
+#### Commit nodes and commit edges
+
+Why:
+
+- enables historical retrieval
+- supports commit-aware architecture and incident context
+
+Likely edges:
+
+- `COMMIT_TOUCHED_FILE`
+- `MEMORY_RELATES_TO_COMMIT`
+- `COMMIT_ON_BRANCH`
+
+#### Reviewed cross-tree similarity links
+
+Why:
+
+- some important relationships are architectural rather than structural
+- these should likely be reviewed before becoming durable graph edges
+
+Possible representations:
+
+- direct reviewed cross-tree edges
+- memory/convention nodes attached to both sides
+
+### Suggested implementation order
+
+1. `TEST_COVERS_SYMBOL`
+2. `DOC_DESCRIBES_SYMBOL`
+3. `CONFIG_AFFECTS_FILE`
+4. explicit memory-to-code links
+5. `SYMBOL_CALLS_SYMBOL`
+6. subsystem nodes
+7. commit nodes
+8. reviewed cross-tree similarity links

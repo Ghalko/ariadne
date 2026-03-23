@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import re
 
 from sqlalchemy.orm import Session
 
@@ -55,9 +56,22 @@ class RetrievalService:
         for symbol in symbols:
             scores[f"symbol:{symbol.id}"] += 12 * weights["lexical"]
             reasons[f"symbol:{symbol.id}"] = "lexical match on symbol metadata"
+            scores[f"file:{symbol.file_id}"] += 9 * weights["graph"]
+            reasons.setdefault(f"file:{symbol.file_id}", "file contains matched symbol")
         for memory in memories:
             scores[f"memory:{memory.id}"] += 8 * weights["memory"]
             reasons[f"memory:{memory.id}"] = "memory text matched query"
+
+        self._expand_support_artifacts(
+            repo_id=repo_id,
+            query=query,
+            mode=mode,
+            files=files,
+            symbols=symbols,
+            scores=scores,
+            reasons=reasons,
+            weight=weights,
+        )
 
         for symbol in symbols[: min(4, len(symbols))]:
             for neighbor in self.graph.traverse(
@@ -137,3 +151,75 @@ class RetrievalService:
         )
         self.session.add(log)
         self.session.flush()
+
+    def _expand_support_artifacts(
+        self,
+        *,
+        repo_id: int | None,
+        query: str,
+        mode: str,
+        files: list[FileRecord],
+        symbols: list[SymbolRecord],
+        scores: dict[str, float],
+        reasons: dict[str, str],
+        weight: dict[str, float],
+    ) -> None:
+        if repo_id is None:
+            return
+
+        terms = self._terms(query)
+        symbol_terms = {
+            piece.lower()
+            for symbol in symbols
+            for piece in re.split(r"[_\W]+", symbol.name)
+            if len(piece) >= 3
+        }
+        primary_files = {file.id: file for file in files}
+        for symbol in symbols:
+            file_record = self.session.get(FileRecord, symbol.file_id)
+            if file_record is not None:
+                primary_files[file_record.id] = file_record
+
+        candidate_terms = {*terms, *symbol_terms}
+        primary_modules = {file.path.removesuffix(".py").replace("/", ".") for file in primary_files.values()}
+        all_files = list(self.session.query(FileRecord).filter(FileRecord.repo_id == repo_id))
+
+        for file in all_files:
+            if file.id in primary_files:
+                continue
+            path_text = f"{file.path} {file.summary or ''}".lower()
+            overlap = any(term in path_text for term in candidate_terms)
+            imports_primary = any(imported in primary_modules for imported in file.imports)
+            is_test = "test" in file.tags or file.path.startswith("tests/") or "/test" in file.path
+            is_doc = file.path.startswith("docs/") or file.language.value == "markdown"
+            is_config = file.path.startswith("config/") or file.language.value in {"toml", "yaml", "json"}
+
+            if is_test and (imports_primary or overlap) and mode in {"understand", "refactor", "bugfix", "testgen"}:
+                scores[f"file:{file.id}"] += 12.0 * weight["graph"]
+                reasons.setdefault(f"file:{file.id}", "related test expansion")
+            elif is_doc and overlap:
+                scores[f"file:{file.id}"] += 4.0 * weight["graph"]
+                reasons.setdefault(f"file:{file.id}", "related documentation expansion")
+            elif is_config and overlap:
+                scores[f"file:{file.id}"] += 5.0 * weight["graph"]
+                reasons.setdefault(f"file:{file.id}", "related config expansion")
+
+        active_memories = (
+            self.session.query(Memory)
+            .filter(Memory.status == MemoryStatus.active)
+            .filter((Memory.repo_id == repo_id) | (Memory.repo_id.is_(None)))
+            .all()
+        )
+        for memory in active_memories:
+            text = f"{memory.title} {memory.summary or ''} {memory.content}".lower()
+            overlap = any(term in text for term in candidate_terms)
+            type_signal = any(
+                phrase in query.lower()
+                for phrase in ("decision", "runbook", "incident", "architecture", "prior")
+            )
+            if overlap or (type_signal and any(term in text for term in terms)):
+                scores[f"memory:{memory.id}"] += 5.0 * weight["memory"]
+                reasons.setdefault(f"memory:{memory.id}", "memory expansion from related task context")
+
+    def _terms(self, query: str) -> list[str]:
+        return [term for term in re.split(r"\W+", query.lower()) if len(term) >= 3]

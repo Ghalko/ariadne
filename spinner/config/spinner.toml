@@ -1,0 +1,7 @@
+[runtime]
+default_mode = "understand"
+workspace = "spinner"
+
+[sessions]
+store = "memory"
+replay_latest = true

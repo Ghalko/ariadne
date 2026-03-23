@@ -85,9 +85,11 @@ class PythonParser:
         return "Python symbol"
 
     def _summarize_module(self, path: Path, symbols: list[ParsedSymbol], imports: list[str]) -> str:
+        sample_symbols = ", ".join(symbol.name for symbol in symbols[:3])
+        symbol_clause = f" Key symbols: {sample_symbols}." if sample_symbols else ""
         return (
             f"Python module {path.name} with {len(symbols)} top-level symbols "
-            f"and {len(set(filter(None, imports)))} imports."
+            f"and {len(set(filter(None, imports)))} imports.{symbol_clause}"
         )
 
     def _infer_tags(self, path: Path) -> list[str]:
