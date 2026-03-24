@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 from sqlalchemy.orm import Session
 
@@ -40,7 +41,7 @@ class IndexingService:
                 continue
 
             parsed = self.parsers.parse(path, content)
-            file_record = self._upsert_file(repo, relative_path, checksum, parsed)
+            file_record = self._upsert_file(repo, relative_path, checksum, parsed, content=content)
             self._replace_symbols(repo, file_record, parsed)
             upsert_embedding(
                 self.session,
@@ -56,10 +57,11 @@ class IndexingService:
         for file_record in self.session.query(FileRecord).filter(FileRecord.repo_id == repo.id):
             self._sync_import_edges(repo, file_record)
         self._sync_test_edges(repo)
+        self._sync_doc_edges(repo)
 
         return {"repo": repo.name, "indexed": indexed, "skipped": skipped, "discovered": len(files)}
 
-    def _upsert_file(self, repo: Repo, relative_path: str, checksum: str, parsed) -> FileRecord:
+    def _upsert_file(self, repo: Repo, relative_path: str, checksum: str, parsed, *, content: str) -> FileRecord:
         file_record = (
             self.session.query(FileRecord)
             .filter(FileRecord.repo_id == repo.id, FileRecord.path == relative_path)
@@ -75,7 +77,10 @@ class IndexingService:
         file_record.summary = parsed.summary
         file_record.imports = parsed.imports
         file_record.tags = parsed.tags
-        file_record.metadata_json = {"parser": parsed.language.value}
+        metadata = {"parser": parsed.language.value}
+        if parsed.language.value in {"markdown", "json", "yaml", "toml"}:
+            metadata["content_excerpt"] = content[:4000]
+        file_record.metadata_json = metadata
         self.session.flush()
         return file_record
 
@@ -190,3 +195,52 @@ class IndexingService:
                         edge_type=EdgeType.test_covers_symbol,
                         metadata_json={"covered_file": covered_file.path},
                     )
+
+    def _sync_doc_edges(self, repo: Repo) -> None:
+        from ariadne_index.models.entities import Edge
+
+        self.session.query(Edge).filter(
+            Edge.repo_id == repo.id,
+            Edge.edge_type == EdgeType.doc_describes_symbol,
+        ).delete()
+
+        files = list(self.session.query(FileRecord).filter(FileRecord.repo_id == repo.id))
+        docs = [
+            file
+            for file in files
+            if file.language.value == "markdown" or file.path.startswith("docs/")
+        ]
+        symbols = list(self.session.query(SymbolRecord).filter(SymbolRecord.repo_id == repo.id))
+        files_by_id = {file.id: file for file in files}
+
+        for doc in docs:
+            text = f"{doc.path} {doc.summary or ''} {doc.metadata_json.get('content_excerpt', '')}".lower()
+            doc_terms = set(term for term in re.split(r"\W+", text) if len(term) >= 4)
+            for symbol in symbols:
+                symbol_terms = {
+                    term
+                    for term in re.split(r"[_\W]+", f"{symbol.name} {symbol.qualified_name or ''}")
+                    if len(term) >= 4
+                }
+                file_record = files_by_id.get(symbol.file_id)
+                if file_record is None:
+                    continue
+                file_terms = {
+                    term
+                    for term in re.split(r"[\/_.\W]+", file_record.path)
+                    if len(term) >= 4
+                }
+
+                if not symbol_terms.intersection(doc_terms) and not file_terms.intersection(doc_terms):
+                    continue
+
+                self.graph.add_edge(
+                    repo_id=repo.id,
+                    from_node_kind="file",
+                    from_node_id=doc.id,
+                    to_node_kind="symbol",
+                    to_node_id=symbol.id,
+                    edge_type=EdgeType.doc_describes_symbol,
+                    metadata_json={"doc_path": doc.path, "file_path": file_record.path},
+                    weight=0.8,
+                )

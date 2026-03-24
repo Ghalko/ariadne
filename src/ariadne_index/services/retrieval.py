@@ -54,9 +54,9 @@ class RetrievalService:
             scores[f"file:{file.id}"] += 10 * weights["lexical"]
             reasons[f"file:{file.id}"] = "lexical match on path or summary"
         for symbol in symbols:
-            scores[f"symbol:{symbol.id}"] += 12 * weights["lexical"]
+            scores[f"symbol:{symbol.id}"] += 14 * weights["lexical"]
             reasons[f"symbol:{symbol.id}"] = "lexical match on symbol metadata"
-            scores[f"file:{symbol.file_id}"] += 9 * weights["graph"]
+            scores[f"file:{symbol.file_id}"] += 7 * weights["graph"]
             reasons.setdefault(f"file:{symbol.file_id}", "file contains matched symbol")
         for memory in memories:
             scores[f"memory:{memory.id}"] += 8 * weights["memory"]
@@ -78,11 +78,22 @@ class RetrievalService:
                 start_kind="symbol",
                 start_id=symbol.id,
                 max_hops=2 if mode == "refactor" else 1,
-                edge_types=[EdgeType.file_contains_symbol, EdgeType.test_covers_symbol, EdgeType.applies_to],
+                edge_types=[
+                    EdgeType.file_contains_symbol,
+                    EdgeType.test_covers_symbol,
+                    EdgeType.doc_describes_symbol,
+                    EdgeType.applies_to,
+                ],
                 limit=limit,
             ):
                 key = f"{neighbor['node_kind']}:{neighbor['node_id']}"
-                scores[key] += max(1.0, 6 - neighbor["hops"]) * weights["graph"]
+                scores[key] += self._graph_edge_score(
+                    edge_path=neighbor["path"],
+                    mode=mode,
+                    query=query,
+                    hops=neighbor["hops"],
+                    graph_weight=weights["graph"],
+                )
                 reasons[key] = f"graph expansion via {' > '.join(neighbor['path'])}"
 
         query_vector = self.embedder.embed(query)
@@ -168,6 +179,7 @@ class RetrievalService:
             return
 
         terms = self._terms(query)
+        doc_focused = any(term in query.lower() for term in ("doc", "docs", "runbook", "decision", "architecture", "adr"))
         symbol_terms = {
             piece.lower()
             for symbol in symbols
@@ -197,8 +209,8 @@ class RetrievalService:
             if is_test and (imports_primary or overlap) and mode in {"understand", "refactor", "bugfix", "testgen"}:
                 scores[f"file:{file.id}"] += 12.0 * weight["graph"]
                 reasons.setdefault(f"file:{file.id}", "related test expansion")
-            elif is_doc and overlap:
-                scores[f"file:{file.id}"] += 4.0 * weight["graph"]
+            elif is_doc and overlap and doc_focused:
+                scores[f"file:{file.id}"] += 5.0 * weight["graph"]
                 reasons.setdefault(f"file:{file.id}", "related documentation expansion")
             elif is_config and overlap:
                 scores[f"file:{file.id}"] += 5.0 * weight["graph"]
@@ -218,8 +230,35 @@ class RetrievalService:
                 for phrase in ("decision", "runbook", "incident", "architecture", "prior")
             )
             if overlap or (type_signal and any(term in text for term in terms)):
-                scores[f"memory:{memory.id}"] += 5.0 * weight["memory"]
+                scores[f"memory:{memory.id}"] += (6.0 if type_signal else 4.0) * weight["memory"]
                 reasons.setdefault(f"memory:{memory.id}", "memory expansion from related task context")
 
     def _terms(self, query: str) -> list[str]:
         return [term for term in re.split(r"\W+", query.lower()) if len(term) >= 3]
+
+    def _graph_edge_score(
+        self,
+        *,
+        edge_path: list[str],
+        mode: str,
+        query: str,
+        hops: int,
+        graph_weight: float,
+    ) -> float:
+        edge_type = edge_path[-1] if edge_path else ""
+        query_lower = query.lower()
+
+        if edge_type == EdgeType.test_covers_symbol.value:
+            base = 8.0 if mode in {"refactor", "bugfix", "testgen"} else 6.0
+        elif edge_type == EdgeType.file_contains_symbol.value:
+            base = 5.5
+        elif edge_type == EdgeType.applies_to.value:
+            base = 5.0
+        elif edge_type == EdgeType.doc_describes_symbol.value:
+            base = 5.0 if mode in {"docs", "architecture"} or any(
+                term in query_lower for term in ("doc", "docs", "runbook", "decision", "architecture", "adr")
+            ) else 2.0
+        else:
+            base = 3.0
+
+        return max(1.0, base - (hops - 1)) * graph_weight

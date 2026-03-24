@@ -64,3 +64,13 @@ def test_indexing_creates_test_coverage_edges(db_session, sample_repo) -> None:
     edges = db_session.query(Edge).filter(Edge.repo_id == repo.id, Edge.edge_type == EdgeType.test_covers_symbol).all()
     assert edges
     assert any(edge.from_node_kind == "file" and edge.to_node_kind == "symbol" for edge in edges)
+
+
+def test_indexing_creates_doc_description_edges(db_session, sample_repo) -> None:
+    services = build_services(db_session)
+    repo = services["repos"].add_repo(RepoCreate(name="sample", local_path=str(sample_repo)))
+    services["indexing"].index_repo(repo)
+
+    edges = db_session.query(Edge).filter(Edge.repo_id == repo.id, Edge.edge_type == EdgeType.doc_describes_symbol).all()
+    assert edges
+    assert any(edge.from_node_kind == "file" and edge.to_node_kind == "symbol" for edge in edges)
