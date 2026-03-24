@@ -55,6 +55,7 @@ class IndexingService:
 
         for file_record in self.session.query(FileRecord).filter(FileRecord.repo_id == repo.id):
             self._sync_import_edges(repo, file_record)
+        self._sync_test_edges(repo)
 
         return {"repo": repo.name, "indexed": indexed, "skipped": skipped, "discovered": len(files)}
 
@@ -154,3 +155,38 @@ class IndexingService:
                 to_node_id=target.id,
                 edge_type=EdgeType.file_imports_file,
             )
+
+    def _sync_test_edges(self, repo: Repo) -> None:
+        from ariadne_index.models.entities import Edge
+
+        self.session.query(Edge).filter(
+            Edge.repo_id == repo.id,
+            Edge.edge_type == EdgeType.test_covers_symbol,
+        ).delete()
+
+        files = list(self.session.query(FileRecord).filter(FileRecord.repo_id == repo.id))
+        module_to_file = {file.path.removesuffix(".py").replace("/", "."): file for file in files}
+        symbols_by_file_id: dict[int, list[SymbolRecord]] = {}
+        for symbol in self.session.query(SymbolRecord).filter(SymbolRecord.repo_id == repo.id):
+            symbols_by_file_id.setdefault(symbol.file_id, []).append(symbol)
+
+        for test_file in files:
+            is_test = "test" in test_file.tags or test_file.path.startswith("tests/") or "/test" in test_file.path
+            if not is_test:
+                continue
+            covered_files = {
+                module_to_file[imported]
+                for imported in test_file.imports
+                if imported in module_to_file
+            }
+            for covered_file in covered_files:
+                for symbol in symbols_by_file_id.get(covered_file.id, []):
+                    self.graph.add_edge(
+                        repo_id=repo.id,
+                        from_node_kind="file",
+                        from_node_id=test_file.id,
+                        to_node_kind="symbol",
+                        to_node_id=symbol.id,
+                        edge_type=EdgeType.test_covers_symbol,
+                        metadata_json={"covered_file": covered_file.path},
+                    )

@@ -76,20 +76,21 @@ class GraphService:
                 continue
             for edge in self.neighbors(node_kind=node_kind, node_id=node_id, edge_types=edge_types, limit=limit):
                 if edge.from_node_kind == node_kind and edge.from_node_id == node_id:
-                    target = (edge.to_node_kind, edge.to_node_id)
+                    target_kind, target_id = edge.to_node_kind, edge.to_node_id
                 else:
-                    target = (edge.from_node_kind, edge.from_node_id)
+                    target_kind, target_id = edge.from_node_kind, edge.from_node_id
+                target = (target_kind, target_id)
                 if target in visited:
                     continue
                 visited.add(target)
                 edge_path = [*path, edge.edge_type.value]
                 results.append(
                     {
-                        "node_kind": edge.to_node_kind,
-                        "node_id": edge.to_node_id,
+                        "node_kind": target_kind,
+                        "node_id": target_id,
                         "path": edge_path,
                         "hops": hops + 1,
                     }
                 )
-                queue.append((edge.to_node_kind, edge.to_node_id, hops + 1, edge_path))
+                queue.append((target_kind, target_id, hops + 1, edge_path))
         return results

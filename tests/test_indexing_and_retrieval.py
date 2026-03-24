@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from ariadne_index.bootstrap import build_services
+from ariadne_index.models.entities import Edge
+from ariadne_index.models.enums import EdgeType
 from ariadne_index.schemas import MemoryCreate, MemoryLinkCreate, RepoCreate
 
 
@@ -52,3 +54,13 @@ def test_retrieve_includes_memory_context(db_session, sample_repo) -> None:
     assert payload["context"]["symbols"]
     assert any(item["title"] == "Retry budget stays capped" for item in payload["context"]["memories"])
     assert any(snippet["symbol"] == "retry_logic" for snippet in payload["context"]["snippets"])
+
+
+def test_indexing_creates_test_coverage_edges(db_session, sample_repo) -> None:
+    services = build_services(db_session)
+    repo = services["repos"].add_repo(RepoCreate(name="sample", local_path=str(sample_repo)))
+    services["indexing"].index_repo(repo)
+
+    edges = db_session.query(Edge).filter(Edge.repo_id == repo.id, Edge.edge_type == EdgeType.test_covers_symbol).all()
+    assert edges
+    assert any(edge.from_node_kind == "file" and edge.to_node_kind == "symbol" for edge in edges)
