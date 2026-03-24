@@ -22,6 +22,9 @@ class ContextPacker:
         include_code: bool,
     ) -> dict:
         repo_root = Path(repo.local_path) if repo is not None else None
+        files = self._balanced_files(files)
+        symbols = symbols[:4]
+        memories = memories[:2]
         file_summaries = [
             {
                 "id": file.id,
@@ -76,6 +79,40 @@ class ContextPacker:
                     }
                 )
         return packed
+
+    def _balanced_files(self, files: list[FileRecord]) -> list[FileRecord]:
+        code_files = [file for file in files if not self._is_support_file(file)]
+        support_files = [file for file in files if self._is_support_file(file)]
+        tests = [file for file in support_files if self._is_test(file)]
+        docs = [file for file in support_files if self._is_doc(file)]
+        configs = [file for file in support_files if self._is_config(file)]
+
+        selected: list[FileRecord] = []
+        selected.extend(code_files[:3])
+        selected.extend(tests[:2])
+        selected.extend(docs[:2])
+        selected.extend(configs[:1])
+
+        seen: set[int] = set()
+        deduped: list[FileRecord] = []
+        for file in [*selected, *files]:
+            if file.id in seen:
+                continue
+            seen.add(file.id)
+            deduped.append(file)
+        return deduped[:8]
+
+    def _is_support_file(self, file: FileRecord) -> bool:
+        return self._is_test(file) or self._is_doc(file) or self._is_config(file)
+
+    def _is_test(self, file: FileRecord) -> bool:
+        return "test" in file.tags or file.path.startswith("tests/") or "/test" in file.path
+
+    def _is_doc(self, file: FileRecord) -> bool:
+        return file.path.startswith("docs/") or file.language.value == "markdown"
+
+    def _is_config(self, file: FileRecord) -> bool:
+        return file.path.startswith("config/") or file.language.value in {"toml", "yaml", "json"}
 
     def _snippet(self, path: Path, line_start: int, line_end: int) -> str:
         if not path.exists():

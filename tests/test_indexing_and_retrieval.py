@@ -11,8 +11,8 @@ def test_index_repo_extracts_files_and_symbols(db_session, sample_repo) -> None:
     repo = services["repos"].add_repo(RepoCreate(name="sample", local_path=str(sample_repo)))
     result = services["indexing"].index_repo(repo)
 
-    assert result["discovered"] == 5
-    assert result["indexed"] == 5
+    assert result["discovered"] == 6
+    assert result["indexed"] == 6
 
     search = services["retrieval"].lexical.search("retry", repo_id=repo.id)
     assert any(file.path == "app/service.py" for file in search["files"])
@@ -74,3 +74,13 @@ def test_indexing_creates_doc_description_edges(db_session, sample_repo) -> None
     edges = db_session.query(Edge).filter(Edge.repo_id == repo.id, Edge.edge_type == EdgeType.doc_describes_symbol).all()
     assert edges
     assert any(edge.from_node_kind == "file" and edge.to_node_kind == "symbol" for edge in edges)
+
+
+def test_indexing_creates_config_affects_file_edges(db_session, sample_repo) -> None:
+    services = build_services(db_session)
+    repo = services["repos"].add_repo(RepoCreate(name="sample", local_path=str(sample_repo)))
+    services["indexing"].index_repo(repo)
+
+    edges = db_session.query(Edge).filter(Edge.repo_id == repo.id, Edge.edge_type == EdgeType.config_affects_file).all()
+    assert edges
+    assert any(edge.from_node_kind == "file" and edge.to_node_kind == "file" for edge in edges)

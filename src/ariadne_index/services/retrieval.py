@@ -82,6 +82,7 @@ class RetrievalService:
                     EdgeType.file_contains_symbol,
                     EdgeType.test_covers_symbol,
                     EdgeType.doc_describes_symbol,
+                    EdgeType.config_affects_file,
                     EdgeType.applies_to,
                 ],
                 limit=limit,
@@ -95,6 +96,76 @@ class RetrievalService:
                     graph_weight=weights["graph"],
                 )
                 reasons[key] = f"graph expansion via {' > '.join(neighbor['path'])}"
+                self._promote_symbol_owner_file(
+                    key=key,
+                    scores=scores,
+                    reasons=reasons,
+                    graph_weight=weights["graph"],
+                    reason="owner file promoted from graph symbol expansion",
+                )
+
+        for file in files[: min(3, len(files))]:
+            for neighbor in self.graph.traverse(
+                start_kind="file",
+                start_id=file.id,
+                max_hops=2 if self._is_support_file(file) else 1,
+                edge_types=[
+                    EdgeType.file_imports_file,
+                    EdgeType.file_contains_symbol,
+                    EdgeType.test_covers_symbol,
+                    EdgeType.doc_describes_symbol,
+                    EdgeType.applies_to,
+                    EdgeType.config_affects_file,
+                ],
+                limit=limit,
+            ):
+                key = f"{neighbor['node_kind']}:{neighbor['node_id']}"
+                scores[key] += self._graph_edge_score(
+                    edge_path=neighbor["path"],
+                    mode=mode,
+                    query=query,
+                    hops=neighbor["hops"],
+                    graph_weight=weights["graph"],
+                )
+                reasons.setdefault(key, f"graph expansion via {' > '.join(neighbor['path'])}")
+                self._promote_symbol_owner_file(
+                    key=key,
+                    scores=scores,
+                    reasons=reasons,
+                    graph_weight=weights["graph"],
+                    reason="owner file promoted from support artifact graph expansion",
+                )
+
+        for memory in memories[: min(3, len(memories))]:
+            for neighbor in self.graph.traverse(
+                start_kind="memory",
+                start_id=memory.id,
+                max_hops=2,
+                edge_types=[
+                    EdgeType.applies_to,
+                    EdgeType.constrains,
+                    EdgeType.warns_about,
+                    EdgeType.implemented_by,
+                    EdgeType.file_contains_symbol,
+                ],
+                limit=limit,
+            ):
+                key = f"{neighbor['node_kind']}:{neighbor['node_id']}"
+                scores[key] += self._graph_edge_score(
+                    edge_path=neighbor["path"],
+                    mode=mode,
+                    query=query,
+                    hops=neighbor["hops"],
+                    graph_weight=weights["graph"],
+                )
+                reasons.setdefault(key, f"memory graph expansion via {' > '.join(neighbor['path'])}")
+                self._promote_symbol_owner_file(
+                    key=key,
+                    scores=scores,
+                    reasons=reasons,
+                    graph_weight=weights["graph"],
+                    reason="owner file promoted from memory link",
+                )
 
         query_vector = self.embedder.embed(query)
         candidate_embeddings = self._candidate_embeddings(repo_id=repo_id, limit=limit * 8)
@@ -106,10 +177,11 @@ class RetrievalService:
             scores[key] += similarity * 10 * weights["semantic"]
             reasons.setdefault(key, "semantic similarity to query")
 
-        ordered = sorted(scores.items(), key=lambda item: item[1], reverse=True)[: limit * 2]
-        selected_files = self._load_entities(FileRecord, ordered, prefix="file")
-        selected_symbols = self._load_entities(SymbolRecord, ordered, prefix="symbol")
-        selected_memories = self._load_entities(Memory, ordered, prefix="memory")
+        ordered = sorted(scores.items(), key=lambda item: item[1], reverse=True)[: limit * 4]
+        selected = self._select_ranked_by_type(ordered, mode=mode, limit=limit)
+        selected_files = self._load_entities(FileRecord, selected, prefix="file")
+        selected_symbols = self._load_entities(SymbolRecord, selected, prefix="symbol")
+        selected_memories = self._load_entities(Memory, selected, prefix="memory")
 
         packed = self.packer.pack(
             repo=repo,
@@ -126,11 +198,65 @@ class RetrievalService:
             "context": packed,
         }
 
+    def _select_ranked_by_type(self, ordered: list[tuple[str, float]], *, mode: str, limit: int) -> list[tuple[str, float]]:
+        memory_quota = 3 if mode in {"architecture", "docs", "refactor"} else 2
+        quotas = {
+            "file": max(limit, 8),
+            "symbol": max(4, min(limit, 6)),
+            "memory": memory_quota,
+        }
+        counts = defaultdict(int)
+        selected: list[tuple[str, float]] = []
+
+        for key, score in ordered:
+            node_kind = key.split(":", 1)[0]
+            quota = quotas.get(node_kind)
+            if quota is None or counts[node_kind] >= quota:
+                continue
+            selected.append((key, score))
+            counts[node_kind] += 1
+
+            if all(counts[node_kind] >= quota for node_kind, quota in quotas.items() if any(item[0].startswith(f"{node_kind}:") for item in ordered)):
+                break
+
+        return selected
+
     def _candidate_embeddings(self, repo_id: int | None, limit: int) -> list[Embedding]:
         query = self.session.query(Embedding)
         if repo_id is not None:
             query = query.filter(Embedding.repo_id == repo_id)
         return list(query.limit(limit))
+
+    def _promote_symbol_owner_file(
+        self,
+        *,
+        key: str,
+        scores: dict[str, float],
+        reasons: dict[str, str],
+        graph_weight: float,
+        reason: str,
+    ) -> None:
+        if not key.startswith("symbol:"):
+            return
+        symbol_id = int(key.split(":", 1)[1])
+        symbol = self.session.get(SymbolRecord, symbol_id)
+        if symbol is None:
+            return
+        file_key = f"file:{symbol.file_id}"
+        scores[file_key] += 6.0 * graph_weight
+        reasons.setdefault(file_key, reason)
+
+    def _is_support_file(self, file: FileRecord) -> bool:
+        return self._is_test(file) or self._is_doc(file) or self._is_config(file)
+
+    def _is_test(self, file: FileRecord) -> bool:
+        return "test" in file.tags or file.path.startswith("tests/") or "/test" in file.path
+
+    def _is_doc(self, file: FileRecord) -> bool:
+        return file.path.startswith("docs/") or file.language.value == "markdown"
+
+    def _is_config(self, file: FileRecord) -> bool:
+        return file.path.startswith("config/") or file.language.value in {"toml", "yaml", "json"}
 
     def _load_entities(self, model, ordered: list[tuple[str, float]], prefix: str):
         ids = [int(key.split(":")[1]) for key, _ in ordered if key.startswith(f"{prefix}:")]
@@ -252,6 +378,8 @@ class RetrievalService:
             base = 8.0 if mode in {"refactor", "bugfix", "testgen"} else 6.0
         elif edge_type == EdgeType.file_contains_symbol.value:
             base = 5.5
+        elif edge_type == EdgeType.file_imports_file.value:
+            base = 5.0
         elif edge_type == EdgeType.applies_to.value:
             base = 5.0
         elif edge_type == EdgeType.doc_describes_symbol.value:

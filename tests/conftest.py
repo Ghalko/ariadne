@@ -27,6 +27,7 @@ def sample_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "sample_repo"
     repo.mkdir()
     (repo / "app").mkdir()
+    (repo / "config").mkdir()
     (repo / "tests").mkdir()
     (repo / "docs").mkdir()
     (repo / "app" / "__init__.py").write_text("", encoding="utf-8")
@@ -54,6 +55,10 @@ def sample_repo(tmp_path: Path) -> Path:
     )
     (repo / "docs" / "adr-retry.md").write_text(
         "# Retry Decision\n\nBound enrollment sync retries to avoid duplicate writes.\n",
+        encoding="utf-8",
+    )
+    (repo / "config" / "retry.toml").write_text(
+        '[retry_logic]\nmodule = "app.service"\nattempts = 3\nstrategy = "bounded"\n',
         encoding="utf-8",
     )
     return repo

@@ -72,7 +72,7 @@ def run_benchmarks(queries_path: Path, *, limit_override: int | None = None) -> 
 
     from ariadne_index.config import get_settings
     from ariadne_index.db import init_database, session_scope
-    from ariadne_index.schemas import MemoryCreate, RepoCreate
+    from ariadne_index.schemas import MemoryCreate, MemoryLinkCreate, RepoCreate
     from ariadne_index.services.embeddings import DeterministicEmbeddingProvider
     from ariadne_index.services.indexing import IndexingService
     from ariadne_index.services.memory import MemoryService
@@ -94,7 +94,13 @@ def run_benchmarks(queries_path: Path, *, limit_override: int | None = None) -> 
 
             repo = repos.add_repo(RepoCreate(name="spinner", local_path=str(SPINNER_ROOT)))
             indexing.index_repo(repo)
-            seed_doc_memories(repo.id, memory, MemoryCreate=MemoryCreate)
+            seed_doc_memories(
+                repo.id,
+                memory,
+                session,
+                MemoryCreate=MemoryCreate,
+                MemoryLinkCreate=MemoryLinkCreate,
+            )
 
             results = [
                 evaluate_query(
@@ -112,7 +118,11 @@ def run_benchmarks(queries_path: Path, *, limit_override: int | None = None) -> 
     }
 
 
-def seed_doc_memories(repo_id: int, memory_service, *, MemoryCreate) -> None:
+def seed_doc_memories(repo_id: int, memory_service, session, *, MemoryCreate, MemoryLinkCreate) -> None:
+    from ariadne_index.models.entities import FileRecord, SymbolRecord
+
+    files = list(session.query(FileRecord).filter(FileRecord.repo_id == repo_id))
+    symbols = list(session.query(SymbolRecord).filter(SymbolRecord.repo_id == repo_id))
     docs = sorted((SPINNER_ROOT / "docs").rglob("*.md"))
     for doc_path in docs:
         relative = doc_path.relative_to(SPINNER_ROOT).as_posix()
@@ -120,7 +130,7 @@ def seed_doc_memories(repo_id: int, memory_service, *, MemoryCreate) -> None:
         title = next((line.strip("# ").strip() for line in content.splitlines() if line.startswith("#")), doc_path.stem)
         summary = next((line.strip() for line in content.splitlines() if line.strip() and not line.startswith("#")), title)
         memory_type = infer_memory_type(relative)
-        memory_service.create_memory(
+        memory = memory_service.create_memory(
             MemoryCreate(
                 repo_id=repo_id,
                 title=title,
@@ -130,6 +140,14 @@ def seed_doc_memories(repo_id: int, memory_service, *, MemoryCreate) -> None:
                 metadata_json={"source_path": relative},
             )
         )
+        for node_kind, node_id in infer_memory_links(title, summary, content, files=files, symbols=symbols):
+            memory_service.link_memory(
+                MemoryLinkCreate(
+                    from_memory_id=memory.id,
+                    to_node_kind=node_kind,
+                    to_node_id=node_id,
+                )
+            )
 
 
 def infer_memory_type(relative_path: str) -> str:
@@ -138,6 +156,42 @@ def infer_memory_type(relative_path: str) -> str:
     if "/runbooks/" in relative_path:
         return "runbook_note"
     return "design_note"
+
+
+def infer_memory_links(title: str, summary: str, content: str, *, files, symbols) -> list[tuple[str, int]]:
+    stopwords = {"should", "where", "when", "with", "from", "that", "this", "strategy", "policy", "architecture"}
+    text = f"{title} {summary} {content}".lower()
+    terms = {term for term in re_split(text) if len(term) >= 4 and term not in stopwords}
+    scored: list[tuple[int, str, int]] = []
+
+    for file in files:
+        haystack = f"{file.path} {file.summary or ''}".lower()
+        overlap = sum(1 for term in terms if term in haystack)
+        if overlap:
+            scored.append((overlap, "file", file.id))
+
+    for symbol in symbols:
+        haystack = f"{symbol.name} {symbol.qualified_name or ''} {symbol.summary or ''}".lower()
+        overlap = sum(1 for term in terms if term in haystack)
+        if overlap:
+            scored.append((overlap + 1, "symbol", symbol.id))
+
+    scored.sort(reverse=True)
+    chosen: list[tuple[str, int]] = []
+    seen: set[tuple[str, int]] = set()
+    for _, node_kind, node_id in scored[:4]:
+        key = (node_kind, node_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        chosen.append(key)
+    return chosen
+
+
+def re_split(text: str) -> list[str]:
+    import re
+
+    return re.split(r"\W+", text)
 
 
 def evaluate_query(*, query: dict[str, Any], retrieval, repo, limit_override: int | None) -> QueryResult:
