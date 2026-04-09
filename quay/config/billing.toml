@@ -1,0 +1,8 @@
+[billing]
+currency = "usd"
+emit_invoice_events = true
+retry_failed_outbox = true
+
+[plans]
+starter = 1900
+growth = 4900

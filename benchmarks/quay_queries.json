@@ -1,0 +1,168 @@
+[
+  {
+    "id": "quay-webhook-config-001",
+    "repo": "quay",
+    "mode": "bugfix",
+    "query": "What config affects webhook retry behavior?",
+    "gold_files": [
+      "quay/webhooks/replay.py",
+      "quay/db/queries.py",
+      "quay/jobs/dispatcher.py",
+      "quay/config/loaders.py"
+    ],
+    "gold_symbols": [
+      "replay_failed_deliveries",
+      "list_failed_webhooks",
+      "enqueue_webhook_retry",
+      "load_service_settings"
+    ],
+    "gold_tests": [
+      "tests/unit/test_webhook_replay.py"
+    ],
+    "gold_docs": [
+      "docs/runbooks/webhook-replay-failures.md",
+      "docs/adr/002-webhook-idempotency.md",
+      "config/webhooks.toml"
+    ],
+    "gold_memories": [
+      "ADR 002: Webhook Idempotency",
+      "Webhook Replay Failures"
+    ],
+    "max_context_items": 8
+  },
+  {
+    "id": "quay-tenant-isolation-002",
+    "repo": "quay",
+    "mode": "architecture",
+    "query": "Which files enforce tenant isolation and what decision constrains them?",
+    "gold_files": [
+      "quay/auth/policies.py",
+      "quay/tenants/context.py",
+      "quay/audit/log.py"
+    ],
+    "gold_symbols": [
+      "can_access_tenant",
+      "current_tenant",
+      "append_audit_event"
+    ],
+    "gold_tests": [
+      "tests/unit/test_auth_policy.py"
+    ],
+    "gold_docs": [
+      "docs/adr/001-tenant-isolation.md",
+      "docs/architecture/service-map.md",
+      "config/auth.toml"
+    ],
+    "gold_memories": [
+      "ADR 001: Tenant Isolation",
+      "Service Map"
+    ],
+    "max_context_items": 8
+  },
+  {
+    "id": "quay-token-revocation-003",
+    "repo": "quay",
+    "mode": "bugfix",
+    "query": "Session revocation is not taking effect. What code, config, and runbook should I inspect?",
+    "gold_files": [
+      "quay/auth/sessions.py",
+      "quay/auth/policies.py",
+      "quay/audit/log.py"
+    ],
+    "gold_symbols": [
+      "revoke_session",
+      "can_access_tenant",
+      "append_audit_event"
+    ],
+    "gold_tests": [
+      "tests/unit/test_auth_policy.py"
+    ],
+    "gold_docs": [
+      "docs/runbooks/token-revocation.md",
+      "docs/adr/001-tenant-isolation.md",
+      "config/auth.toml"
+    ],
+    "gold_memories": [
+      "Token Revocation",
+      "ADR 001: Tenant Isolation"
+    ],
+    "max_context_items": 8
+  },
+  {
+    "id": "quay-billing-events-004",
+    "repo": "quay",
+    "mode": "understand",
+    "query": "Where are invoice creation and billing events handled?",
+    "gold_files": [
+      "quay/billing/invoices.py",
+      "quay/billing/plans.py",
+      "quay/events/outbox.py"
+    ],
+    "gold_symbols": [
+      "create_invoice",
+      "plan_price",
+      "publish_billing_event"
+    ],
+    "gold_tests": [],
+    "gold_docs": [
+      "docs/architecture/service-map.md",
+      "config/billing.toml"
+    ],
+    "gold_memories": [
+      "Service Map"
+    ],
+    "max_context_items": 7
+  },
+  {
+    "id": "quay-schema-failed-webhooks-005",
+    "repo": "quay",
+    "mode": "understand",
+    "query": "What schema and query path matter for failed webhook deliveries?",
+    "gold_files": [
+      "quay/db/schema.py",
+      "quay/db/queries.py",
+      "quay/webhooks/replay.py"
+    ],
+    "gold_symbols": [
+      "describe_schema",
+      "list_failed_webhooks",
+      "replay_failed_deliveries"
+    ],
+    "gold_tests": [
+      "tests/unit/test_webhook_replay.py"
+    ],
+    "gold_docs": [
+      "docs/runbooks/webhook-replay-failures.md",
+      "docs/architecture/service-map.md"
+    ],
+    "gold_memories": [
+      "Webhook Replay Failures",
+      "Service Map"
+    ],
+    "max_context_items": 8
+  },
+  {
+    "id": "quay-runtime-diagnose-006",
+    "repo": "quay",
+    "mode": "understand",
+    "query": "Where is the main service runtime for incident diagnosis?",
+    "gold_files": [
+      "quay/cli.py",
+      "quay/service/runtime.py",
+      "quay/models.py"
+    ],
+    "gold_symbols": [
+      "main",
+      "diagnose_incident",
+      "IncidentBundle"
+    ],
+    "gold_tests": [
+      "tests/integration/test_service_runtime.py"
+    ],
+    "gold_docs": [
+      "README.md"
+    ],
+    "gold_memories": [],
+    "max_context_items": 6
+  }
+]

@@ -15,6 +15,8 @@ class ContextPacker:
         self,
         *,
         repo: Repo | None,
+        mode: str,
+        query: str,
         files: list[FileRecord],
         symbols: list[SymbolRecord],
         memories: list[Memory],
@@ -22,9 +24,9 @@ class ContextPacker:
         include_code: bool,
     ) -> dict:
         repo_root = Path(repo.local_path) if repo is not None else None
-        files = self._balanced_files(files)
-        symbols = symbols[:4]
-        memories = memories[:2]
+        files = self._balanced_files(files, mode=mode, query=query)
+        symbols = symbols[: self._symbol_limit(mode)]
+        memories = memories[: self._memory_limit(mode)]
         file_summaries = [
             {
                 "id": file.id,
@@ -80,18 +82,20 @@ class ContextPacker:
                 )
         return packed
 
-    def _balanced_files(self, files: list[FileRecord]) -> list[FileRecord]:
+    def _balanced_files(self, files: list[FileRecord], *, mode: str, query: str) -> list[FileRecord]:
         code_files = [file for file in files if not self._is_support_file(file)]
         support_files = [file for file in files if self._is_support_file(file)]
         tests = [file for file in support_files if self._is_test(file)]
         docs = [file for file in support_files if self._is_doc(file)]
         configs = [file for file in support_files if self._is_config(file)]
 
+        code_limit, test_limit, doc_limit, config_limit = self._file_mix(mode, query=query)
+
         selected: list[FileRecord] = []
-        selected.extend(code_files[:3])
-        selected.extend(tests[:2])
-        selected.extend(docs[:2])
-        selected.extend(configs[:1])
+        selected.extend(code_files[:code_limit])
+        selected.extend(tests[:test_limit])
+        selected.extend(docs[:doc_limit])
+        selected.extend(configs[:config_limit])
 
         seen: set[int] = set()
         deduped: list[FileRecord] = []
@@ -101,6 +105,51 @@ class ContextPacker:
             seen.add(file.id)
             deduped.append(file)
         return deduped[:8]
+
+    def _file_mix(self, mode: str, *, query: str) -> tuple[int, int, int, int]:
+        if mode == "docs":
+            base = [2, 1, 3, 2]
+        elif mode == "architecture":
+            base = [2, 0, 3, 1]
+        elif mode in {"refactor", "bugfix", "testgen"}:
+            base = [4, 2, 1, 1]
+        else:
+            base = [3, 1, 2, 1]
+
+        lowered = query.lower()
+        if any(term in lowered for term in ("doc", "docs", "runbook", "decision", "adr", "architecture")):
+            base[2] = max(base[2], 2 if mode in {"refactor", "bugfix"} else 3)
+            base[0] = max(2, base[0] - 1)
+        if any(term in lowered for term in ("config", "settings", "provider", "providers")):
+            base[3] = max(base[3], 2 if mode in {"docs", "architecture", "understand"} else 1)
+            if mode in {"understand", "docs", "architecture"}:
+                base[2] = max(base[2], 2)
+        if any(term in lowered for term in ("test", "tests", "coverage")):
+            base[1] = max(base[1], 2)
+
+        total = sum(base)
+        while total > 8:
+            for index in (0, 1, 2, 3):
+                minimum = 2 if index == 0 else 1 if base[index] > 0 else 0
+                if base[index] > minimum:
+                    base[index] -= 1
+                    total -= 1
+                    break
+            else:
+                break
+        return tuple(base)
+
+    def _symbol_limit(self, mode: str) -> int:
+        if mode in {"docs", "architecture"}:
+            return 4
+        if mode in {"refactor", "bugfix", "testgen"}:
+            return 6
+        return 5
+
+    def _memory_limit(self, mode: str) -> int:
+        if mode in {"docs", "architecture", "refactor"}:
+            return 3
+        return 2
 
     def _is_support_file(self, file: FileRecord) -> bool:
         return self._is_test(file) or self._is_doc(file) or self._is_config(file)

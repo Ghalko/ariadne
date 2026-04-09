@@ -33,6 +33,11 @@ class QueryResult:
     retrieved_files: list[str]
     retrieved_symbols: list[str]
     retrieved_memories: list[str]
+    missing_file_diagnostics: dict[str, str]
+    missing_symbol_diagnostics: dict[str, str]
+    missing_test_diagnostics: dict[str, str]
+    missing_doc_diagnostics: dict[str, str]
+    missing_memory_diagnostics: dict[str, str]
     estimated_tokens: int
     max_context_items: int
 
@@ -66,7 +71,14 @@ def main() -> None:
     print(render_report(payload))
 
 
-def run_benchmarks(queries_path: Path, *, limit_override: int | None = None) -> dict[str, Any]:
+def run_benchmarks(
+    queries_path: Path,
+    *,
+    fixture_root: Path = SPINNER_ROOT,
+    repo_name: str = "spinner",
+    report_title: str = "Spinner",
+    limit_override: int | None = None,
+) -> dict[str, Any]:
     os.environ["ARIADNE_EMBEDDING_PROVIDER"] = "deterministic"
     os.environ.pop("OPENAI_API_KEY", None)
 
@@ -92,12 +104,13 @@ def run_benchmarks(queries_path: Path, *, limit_override: int | None = None) -> 
             memory = MemoryService(session, embedder)
             retrieval = RetrievalService(session, embedder)
 
-            repo = repos.add_repo(RepoCreate(name="spinner", local_path=str(SPINNER_ROOT)))
+            repo = repos.add_repo(RepoCreate(name=repo_name, local_path=str(fixture_root)))
             indexing.index_repo(repo)
             seed_doc_memories(
                 repo.id,
                 memory,
                 session,
+                fixture_root=fixture_root,
                 MemoryCreate=MemoryCreate,
                 MemoryLinkCreate=MemoryLinkCreate,
             )
@@ -113,19 +126,21 @@ def run_benchmarks(queries_path: Path, *, limit_override: int | None = None) -> 
             ]
 
     return {
+        "report_title": report_title,
+        "repo_name": repo_name,
         "summary": summarize(results, total_queries=len(queries)),
         "results": [asdict(result) for result in results],
     }
 
 
-def seed_doc_memories(repo_id: int, memory_service, session, *, MemoryCreate, MemoryLinkCreate) -> None:
+def seed_doc_memories(repo_id: int, memory_service, session, *, fixture_root: Path, MemoryCreate, MemoryLinkCreate) -> None:
     from ariadne_index.models.entities import FileRecord, SymbolRecord
 
     files = list(session.query(FileRecord).filter(FileRecord.repo_id == repo_id))
     symbols = list(session.query(SymbolRecord).filter(SymbolRecord.repo_id == repo_id))
-    docs = sorted((SPINNER_ROOT / "docs").rglob("*.md"))
+    docs = sorted((fixture_root / "docs").rglob("*.md"))
     for doc_path in docs:
-        relative = doc_path.relative_to(SPINNER_ROOT).as_posix()
+        relative = doc_path.relative_to(fixture_root).as_posix()
         content = doc_path.read_text(encoding="utf-8")
         title = next((line.strip("# ").strip() for line in content.splitlines() if line.startswith("#")), doc_path.stem)
         summary = next((line.strip() for line in content.splitlines() if line.strip() and not line.startswith("#")), title)
@@ -204,6 +219,7 @@ def evaluate_query(*, query: dict[str, Any], retrieval, repo, limit_override: in
         include_code=False,
     )
     context = payload["context"]
+    diagnostics = payload["diagnostics"]
     retrieved_files = [item["path"] for item in context["files"]]
     retrieved_symbols = [item["qualified_name"] for item in context["symbols"]]
     retrieved_memories = [item["title"] for item in context["memories"]]
@@ -213,6 +229,26 @@ def evaluate_query(*, query: dict[str, Any], retrieval, repo, limit_override: in
     doc_hits = intersect(query["gold_docs"], retrieved_files)
     memory_hits = intersect(query["gold_memories"], retrieved_memories)
     symbol_hits = match_symbols(query["gold_symbols"], retrieved_symbols)
+    missing_file_diagnostics = classify_missing_strings(
+        query["gold_files"],
+        stage_values(diagnostics, "files"),
+    )
+    missing_symbol_diagnostics = classify_missing_symbols(
+        query["gold_symbols"],
+        stage_values(diagnostics, "symbols"),
+    )
+    missing_test_diagnostics = classify_missing_strings(
+        query["gold_tests"],
+        stage_values(diagnostics, "files"),
+    )
+    missing_doc_diagnostics = classify_missing_strings(
+        query["gold_docs"],
+        stage_values(diagnostics, "files"),
+    )
+    missing_memory_diagnostics = classify_missing_strings(
+        query["gold_memories"],
+        stage_values(diagnostics, "memories"),
+    )
 
     estimated_tokens = sum(len(item["summary"].split()) for item in context["files"] if item.get("summary")) + sum(
         len(item["summary"].split()) for item in context["memories"] if item.get("summary")
@@ -235,6 +271,11 @@ def evaluate_query(*, query: dict[str, Any], retrieval, repo, limit_override: in
         retrieved_files=retrieved_files,
         retrieved_symbols=retrieved_symbols,
         retrieved_memories=retrieved_memories,
+        missing_file_diagnostics=missing_file_diagnostics,
+        missing_symbol_diagnostics=missing_symbol_diagnostics,
+        missing_test_diagnostics=missing_test_diagnostics,
+        missing_doc_diagnostics=missing_doc_diagnostics,
+        missing_memory_diagnostics=missing_memory_diagnostics,
         estimated_tokens=estimated_tokens,
         max_context_items=query["max_context_items"],
     )
@@ -251,6 +292,54 @@ def match_symbols(expected: list[str], actual: list[str]) -> list[str]:
         if any(candidate == symbol or candidate.endswith(f".{symbol}") for candidate in actual):
             hits.append(symbol)
     return hits
+
+
+def stage_values(diagnostics: dict[str, Any], category: str) -> dict[str, set[str]]:
+    mapping: dict[str, set[str]] = {}
+    key_name = {"files": "path", "symbols": "qualified_name", "memories": "title"}[category]
+    for stage, stage_payload in diagnostics["stages"].items():
+        mapping[stage] = {item[key_name] for item in stage_payload[category]}
+    return mapping
+
+
+def classify_missing_strings(expected: list[str], stages: dict[str, set[str]]) -> dict[str, str]:
+    selected = stages["selected"]
+    packed = stages["packed"]
+    generated = stages["lexical"] | stages["support"] | stages["graph"] | stages["semantic"]
+
+    diagnostics: dict[str, str] = {}
+    for item in expected:
+        if item in packed:
+            continue
+        if item in selected:
+            diagnostics[item] = "packed_out"
+        elif item in generated:
+            diagnostics[item] = "scored_too_low"
+        else:
+            diagnostics[item] = "not_generated"
+    return diagnostics
+
+
+def classify_missing_symbols(expected: list[str], stages: dict[str, set[str]]) -> dict[str, str]:
+    selected = stages["selected"]
+    packed = stages["packed"]
+    generated = stages["lexical"] | stages["support"] | stages["graph"] | stages["semantic"]
+
+    diagnostics: dict[str, str] = {}
+    for symbol in expected:
+        if _contains_symbol(packed, symbol):
+            continue
+        if _contains_symbol(selected, symbol):
+            diagnostics[symbol] = "packed_out"
+        elif _contains_symbol(generated, symbol):
+            diagnostics[symbol] = "scored_too_low"
+        else:
+            diagnostics[symbol] = "not_generated"
+    return diagnostics
+
+
+def _contains_symbol(candidates: set[str], symbol: str) -> bool:
+    return any(candidate == symbol or candidate.endswith(f".{symbol}") for candidate in candidates)
 
 
 def summarize(results: list[QueryResult], *, total_queries: int) -> dict[str, Any]:
@@ -272,13 +361,26 @@ def summarize(results: list[QueryResult], *, total_queries: int) -> dict[str, An
         "avg_retrieved_files": round(sum(len(result.retrieved_files) for result in results) / total_queries, 2),
         "avg_retrieved_symbols": round(sum(len(result.retrieved_symbols) for result in results) / total_queries, 2),
         "avg_retrieved_memories": round(sum(len(result.retrieved_memories) for result in results) / total_queries, 2),
+        "missing_file_reasons": aggregate_missing_reasons(results, "missing_file_diagnostics"),
+        "missing_symbol_reasons": aggregate_missing_reasons(results, "missing_symbol_diagnostics"),
+        "missing_test_reasons": aggregate_missing_reasons(results, "missing_test_diagnostics"),
+        "missing_doc_reasons": aggregate_missing_reasons(results, "missing_doc_diagnostics"),
+        "missing_memory_reasons": aggregate_missing_reasons(results, "missing_memory_diagnostics"),
     }
+
+
+def aggregate_missing_reasons(results: list[QueryResult], attr: str) -> dict[str, int]:
+    counts = {"not_generated": 0, "scored_too_low": 0, "packed_out": 0}
+    for result in results:
+        for reason in getattr(result, attr).values():
+            counts[reason] += 1
+    return counts
 
 
 def render_report(payload: dict[str, Any]) -> str:
     summary = payload["summary"]
     lines = [
-        "Spinner benchmark results",
+        f"{payload['report_title']} benchmark results",
         f"queries: {summary['queries']}",
         f"file hit rate: {summary['file_hit_rate']}",
         f"symbol hit rate: {summary['symbol_hit_rate']}",
@@ -289,10 +391,26 @@ def render_report(payload: dict[str, Any]) -> str:
         f"avg retrieved files: {summary['avg_retrieved_files']}",
         f"avg retrieved symbols: {summary['avg_retrieved_symbols']}",
         f"avg retrieved memories: {summary['avg_retrieved_memories']}",
+        f"missing files: {summary['missing_file_reasons']}",
+        f"missing symbols: {summary['missing_symbol_reasons']}",
+        f"missing tests: {summary['missing_test_reasons']}",
+        f"missing docs: {summary['missing_doc_reasons']}",
+        f"missing memories: {summary['missing_memory_reasons']}",
         "",
         "Per-query snapshot:",
     ]
     for result in payload["results"]:
+        miss_parts = []
+        if result["missing_file_diagnostics"]:
+            miss_parts.append(f"files={result['missing_file_diagnostics']}")
+        if result["missing_symbol_diagnostics"]:
+            miss_parts.append(f"symbols={result['missing_symbol_diagnostics']}")
+        if result["missing_test_diagnostics"]:
+            miss_parts.append(f"tests={result['missing_test_diagnostics']}")
+        if result["missing_doc_diagnostics"]:
+            miss_parts.append(f"docs={result['missing_doc_diagnostics']}")
+        if result["missing_memory_diagnostics"]:
+            miss_parts.append(f"memories={result['missing_memory_diagnostics']}")
         lines.append(
             f"- {result['query_id']}: "
             f"files={len(result['file_hits'])}, "
@@ -301,6 +419,8 @@ def render_report(payload: dict[str, Any]) -> str:
             f"docs={len(result['doc_hits'])}, "
             f"memories={len(result['memory_hits'])}"
         )
+        if miss_parts:
+            lines.append(f"  missing: {'; '.join(miss_parts)}")
     return "\n".join(lines)
 
 

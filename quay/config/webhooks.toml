@@ -1,0 +1,9 @@
+[webhooks]
+signing_secret_env = "QUAY_SIGNING_SECRET"
+max_retry_attempts = 5
+replay_batch_size = 25
+enforce_idempotency = true
+
+[webhooks.providers]
+billing = "stripe"
+crm = "salesforce"

@@ -54,6 +54,7 @@ class EdgeType(str, Enum):
     test_covers_symbol = "TEST_COVERS_SYMBOL"
     config_affects_file = "CONFIG_AFFECTS_FILE"
     doc_describes_symbol = "DOC_DESCRIBES_SYMBOL"
+    doc_describes_file = "DOC_DESCRIBES_FILE"
     symbol_uses_schema = "SYMBOL_USES_SCHEMA"
     symbol_emits_event = "SYMBOL_EMITS_EVENT"
     symbol_handles_event = "SYMBOL_HANDLES_EVENT"

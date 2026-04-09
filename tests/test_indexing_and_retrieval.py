@@ -71,9 +71,16 @@ def test_indexing_creates_doc_description_edges(db_session, sample_repo) -> None
     repo = services["repos"].add_repo(RepoCreate(name="sample", local_path=str(sample_repo)))
     services["indexing"].index_repo(repo)
 
-    edges = db_session.query(Edge).filter(Edge.repo_id == repo.id, Edge.edge_type == EdgeType.doc_describes_symbol).all()
-    assert edges
-    assert any(edge.from_node_kind == "file" and edge.to_node_kind == "symbol" for edge in edges)
+    symbol_edges = db_session.query(Edge).filter(
+        Edge.repo_id == repo.id, Edge.edge_type == EdgeType.doc_describes_symbol
+    ).all()
+    file_edges = db_session.query(Edge).filter(
+        Edge.repo_id == repo.id, Edge.edge_type == EdgeType.doc_describes_file
+    ).all()
+    assert symbol_edges
+    assert file_edges
+    assert any(edge.from_node_kind == "file" and edge.to_node_kind == "symbol" for edge in symbol_edges)
+    assert any(edge.from_node_kind == "file" and edge.to_node_kind == "file" for edge in file_edges)
 
 
 def test_indexing_creates_config_affects_file_edges(db_session, sample_repo) -> None:

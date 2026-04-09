@@ -202,7 +202,7 @@ class IndexingService:
 
         self.session.query(Edge).filter(
             Edge.repo_id == repo.id,
-            Edge.edge_type == EdgeType.doc_describes_symbol,
+            Edge.edge_type.in_([EdgeType.doc_describes_symbol, EdgeType.doc_describes_file]),
         ).delete()
 
         files = list(self.session.query(FileRecord).filter(FileRecord.repo_id == repo.id))
@@ -235,6 +235,16 @@ class IndexingService:
                 if not symbol_terms.intersection(doc_terms) and not file_terms.intersection(doc_terms):
                     continue
 
+                self.graph.add_edge(
+                    repo_id=repo.id,
+                    from_node_kind="file",
+                    from_node_id=doc.id,
+                    to_node_kind="file",
+                    to_node_id=file_record.id,
+                    edge_type=EdgeType.doc_describes_file,
+                    metadata_json={"doc_path": doc.path, "file_path": file_record.path},
+                    weight=0.9,
+                )
                 self.graph.add_edge(
                     repo_id=repo.id,
                     from_node_kind="file",

@@ -1,0 +1,7 @@
+[sessions]
+revocation_ttl_minutes = 30
+require_reason = true
+
+[policies]
+enforce_tenant_match = true
+allow_support_override = false

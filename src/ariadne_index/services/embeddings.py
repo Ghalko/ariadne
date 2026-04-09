@@ -62,6 +62,6 @@ class OpenAIEmbeddingProvider:
 
 
 def cosine_similarity(left: list[float], right: list[float]) -> float:
-    if not left or not right:
+    if len(left) == 0 or len(right) == 0:
         return 0.0
     return sum(a * b for a, b in zip(left, right))
