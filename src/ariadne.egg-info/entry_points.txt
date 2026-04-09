@@ -1,2 +1,3 @@
 [console_scripts]
 ariadne = ariadne_index.cli:app
+ariadne-mcp = ariadne_index.mcp_server:main

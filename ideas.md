@@ -153,6 +153,28 @@ What this means for Ariadne:
 - Ariadne should support Postgres as the shared system of record for team use
 - Ariadne should treat external memory formats as import sources, not as the core storage contract
 
+## Agentic Memory Research Sweep
+
+Reference:
+
+- [agentic-memory repo](https://github.com/lhl/agentic-memory)
+
+The `agentic-memory` repository looks useful as a curated research and system-review corpus, not as a single architecture to adopt wholesale.
+
+What looks worth reviewing:
+
+- concrete agent memory systems with explicit write/read pipelines and operational tradeoffs
+- benchmark and dataset coverage for long-horizon, multi-session, and structured-memory evaluation
+- memory evolution, decay, temporal validity, and contradiction-handling approaches
+- trust and safety topics such as memory poisoning, weak-memory review, and provenance
+
+What this should drive in Ariadne:
+
+- a structured review pass across the repo's system analyses, not just one-off reading
+- a checklist of import, review, retrieval, decay, and benchmarking ideas worth stealing or rejecting explicitly
+- replication of useful benchmark ideas in Ariadne's own harness instead of relying on README claims
+- comparison of Ariadne's conversation and thread-ingest design against the stronger external memory-system references in that collection
+
 ## Storage Modes
 
 Ariadne should treat storage as a deployment mode decision, not as ideology.
@@ -248,7 +270,10 @@ Why:
 Focus:
 
 - add a `memory ingest-convos` path for chat exports and session transcripts
+- add a `memory ingest-threads` path for archived thread markdown files such as `*_thread_summary.md`
+- index archived thread summaries as files on disk and optionally derive imported candidate memories from them
 - store raw transcripts plus derived candidate memories
+- keep source metadata such as archive path, thread identifier, and capture time on imported memories
 - require review before durable persistence for weakly inferred links
 - add pre-compaction or save-hook capture points where practical
 
@@ -364,12 +389,14 @@ Immediate next moves:
 
 - prototype Ariadne MCP tools and use them from Codex
 - design a conversation/session ingest format and review loop
+- design a thread-summary import path that supports both on-disk indexing and MCP-driven memory capture
 - improve README and top-level docs retrieval for `understand` queries
 - tighten config-file recall for support-heavy queries
 - close the remaining symbol misses: `build_plan`, `load_openai_settings`, `record_session_run`, `append_audit_event`
 - add adaptive graph-weight features before making large graph-schema expansions
 - keep vector compression as a later optimization track, not a current blocker
 - prefer targeted fixes confirmed by both benchmark and live traces, and revert changes that do not clear the shared scoreboard
+- review the `agentic-memory` collection and turn the highest-signal references into explicit Ariadne design notes
 
 ## Adaptive Edge Weighting
 

@@ -12,6 +12,7 @@ src/ariadne_index/bootstrap.py
 src/ariadne_index/cli.py
 src/ariadne_index/config.py
 src/ariadne_index/db.py
+src/ariadne_index/mcp_server.py
 src/ariadne_index/schemas.py
 src/ariadne_index/models/__init__.py
 src/ariadne_index/models/base.py
@@ -31,9 +32,11 @@ src/ariadne_index/services/filesystem.py
 src/ariadne_index/services/graph.py
 src/ariadne_index/services/indexing.py
 src/ariadne_index/services/lexical.py
+src/ariadne_index/services/maintenance.py
 src/ariadne_index/services/memory.py
 src/ariadne_index/services/repository.py
 src/ariadne_index/services/retrieval.py
 src/ariadne_index/services/storage.py
 tests/test_indexing_and_retrieval.py
+tests/test_mcp_server.py
 tests/test_parsers.py
