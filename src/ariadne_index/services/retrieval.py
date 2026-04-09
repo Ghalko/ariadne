@@ -722,7 +722,6 @@ class RetrievalService:
             file_record = self.session.get(FileRecord, symbol.file_id)
             if file_record is not None:
                 primary_files[file_record.id] = file_record
-
         candidate_terms = {*terms, *symbol_terms}
         primary_modules = {file.path.removesuffix(".py").replace("/", ".") for file in primary_files.values()}
         all_files = list(self.session.query(FileRecord).filter(FileRecord.repo_id == repo_id))

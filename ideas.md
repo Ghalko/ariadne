@@ -10,6 +10,7 @@ The project is past the initial scaffold stage. Ariadne now has:
 - a repeatable benchmark runner with miss diagnostics
 - live retrieval traces and persisted retrieval-log diagnostics
 - a DB doctor path for schema and embedding compatibility checks
+- optional strict DB compatibility enforcement at service bootstrap
 
 Current benchmark baselines:
 
@@ -111,7 +112,7 @@ What it does not change:
 - lexical retrieval is still necessary
 - graph traversal is still necessary
 - memory and provenance still matter
-- Postgres as system of record still makes sense
+- a shared team deployment still wants a stronger multi-user system of record than a single local SQLite file
 
 Practical implication for Ariadne:
 
@@ -119,6 +120,91 @@ Practical implication for Ariadne:
 - separate canonical embeddings from serving/index representations
 - plan to benchmark float32 vs compressed retrieval later
 - do not block current ranking, graph, and memory work on speculative compression work
+
+## MemPalace Takeaways
+
+Reference:
+
+- [MemPalace repo](https://github.com/milla-jovovich/mempalace)
+
+MemPalace is useful to study, but mostly as a source of product and ingestion ideas rather than as a storage architecture to copy.
+
+What looks worth learning from:
+
+- raw conversation-memory retention instead of aggressively summarizing too early
+- MCP-facing memory tools that an agent can call directly
+- save and pre-compact hooks that capture useful context before it disappears
+- temporal memory and contradiction-checking ideas
+- role- or specialist-specific memory views for architect, reviewer, and ops workflows
+
+What we should not copy directly:
+
+- ChromaDB as the primary storage model
+- SQLite as the only storage mode
+- AAAK as a default compression layer
+- README-level benchmark claims without replication in Ariadne's own harness
+
+What this means for Ariadne:
+
+- Ariadne should grow a conversation-ingest layer for chat/session exports
+- Ariadne should expose memory and retrieval traces over MCP
+- Ariadne should support pre-compaction capture hooks for coding-agent sessions
+- Ariadne should support SQLite as an explicit single-developer local mode
+- Ariadne should support Postgres as the shared system of record for team use
+- Ariadne should treat external memory formats as import sources, not as the core storage contract
+
+## Storage Modes
+
+Ariadne should treat storage as a deployment mode decision, not as ideology.
+
+### SQLite mode
+
+Best fit:
+
+- single-developer local use
+- local-first laptop workflows
+- benchmark fixtures and disposable sandboxes
+- MCP-sidecar or agent-local memory where one process or one user dominates writes
+
+Why it is worth supporting:
+
+- very low operational overhead
+- easy local reset and snapshotting
+- reasonable to commit a DB snapshot to git when the goal is portability or reproducibility, not mergeable history
+- good match for local graph and memory iteration
+
+Constraints to accept:
+
+- weaker concurrent write behavior
+- fewer built-in operational controls for team sharing
+- local file management and migration discipline still matter
+
+### Postgres mode
+
+Best fit:
+
+- local developer environments that want parity with production or team workflows
+- shared team deployments on a LAN, VPN, or cloud network
+- cloud-hosted central graph and memory services with concurrent writers
+
+Why it remains important:
+
+- better multi-user concurrency
+- clearer path for pooled connections, backups, access control, and managed hosting
+- stronger default posture for shared durable memory and graph updates across a team
+
+Modes to support explicitly:
+
+- local Postgres for parity and migration testing
+- shared self-hosted Postgres for small teams
+- managed/cloud Postgres for central team memory and retrieval infrastructure
+
+Architectural consequence:
+
+- one retrieval and storage abstraction
+- SQLite should be first-class for local single-dev mode, not only a benchmark convenience
+- Postgres should be the default shared/team mode
+- backend-specific features should stay optional behind capability checks
 
 ## Near-Term Next Steps
 
@@ -137,7 +223,36 @@ Focus:
 - document the reset/migration path clearly
 - keep `ariadne doctor` as the quick compatibility check
 
-### 2. Improve doc and config ranking where candidates already exist
+### 2. Expose Ariadne retrieval and memory over MCP, then dogfood it in Codex
+
+Why:
+
+- this is the fastest path to proving Ariadne is useful in real coding-agent workflows
+- dogfooding through Codex will expose missing retrieval tools, poor ergonomics, and bad defaults quickly
+- MemPalace reinforces that agent-side usability matters as much as storage internals
+
+Focus:
+
+- expose `search`, `retrieve`, `pack-context`, `graph`, `trace`, and memory CRUD over MCP
+- make retrieval traces easy for the agent to inspect
+- add a simple Codex-facing workflow for storing and retrieving task memory
+- dogfood the Ariadne MCP tools in this repo before broader integration
+
+### 3. Add conversation and session ingest for durable memory
+
+Why:
+
+- Ariadne is strong on code retrieval but still thin on conversation memory capture
+- this is the clearest area where MemPalace has useful product ideas
+
+Focus:
+
+- add a `memory ingest-convos` path for chat exports and session transcripts
+- store raw transcripts plus derived candidate memories
+- require review before durable persistence for weakly inferred links
+- add pre-compaction or save-hook capture points where practical
+
+### 4. Improve doc and config ranking where candidates already exist
 
 Why:
 
@@ -152,7 +267,7 @@ Focus:
 - file promotion that does not crowd out docs and config
 - close the remaining `README.md` and config misses that still show up as `not_generated`
 
-### 3. Close the remaining symbol-generation gaps
+### 5. Close the remaining symbol-generation gaps
 
 Why:
 
@@ -167,7 +282,7 @@ Focus:
   - Spinner: `build_plan`, `load_openai_settings`, `record_session_run`
   - Quay: `append_audit_event`
 
-### 4. Keep Spinner and Quay as a shared scoreboard for retrieval changes
+### 6. Keep Spinner and Quay as a shared scoreboard for retrieval changes
 
 Why:
 
@@ -181,7 +296,7 @@ Next:
 - avoid improving one while silently regressing the other
 - treat cross-fixture improvement as the default success criterion for ranking work
 
-### 5. Keep live traces and retrieval logs central to tuning work
+### 7. Keep live traces and retrieval logs central to tuning work
 
 Why:
 
@@ -194,7 +309,7 @@ Next:
 - compare live and benchmark misses for the same task
 - keep the packed-context output reviewable when tuning ranking
 
-### 6. Add release and migration hygiene
+### 8. Add release and migration hygiene
 
 Why:
 
@@ -207,7 +322,7 @@ Next:
 - add packaging/release checklist items
 - consider failing fast when configured dimensions and DB vector type differ
 
-### 7. Add a second-order trust layer
+### 9. Add a second-order trust layer
 
 Why:
 
@@ -247,11 +362,46 @@ What this means:
 
 Immediate next moves:
 
-- reconcile the live DB from `vector(24)` to the intended default
+- prototype Ariadne MCP tools and use them from Codex
+- design a conversation/session ingest format and review loop
 - improve README and top-level docs retrieval for `understand` queries
 - tighten config-file recall for support-heavy queries
 - close the remaining symbol misses: `build_plan`, `load_openai_settings`, `record_session_run`, `append_audit_event`
+- add adaptive graph-weight features before making large graph-schema expansions
 - keep vector compression as a later optimization track, not a current blocker
+- prefer targeted fixes confirmed by both benchmark and live traces, and revert changes that do not clear the shared scoreboard
+
+## Adaptive Edge Weighting
+
+The next ranking step should probably include learned edge weights rather than treating every traversable edge of a given type as equally useful.
+
+Working idea:
+
+- track how often an edge is traversed during retrieval
+- track how often traversed edges lead to artifacts that survive reranking and packing
+- track stronger positive signals such as benchmark success, explicit user selection, or reviewed memory acceptance
+- track negative signals such as frequent traversal that still ends in `packed_out`, `scored_too_low`, or obvious irrelevance
+
+This is reinforcement-like, but the first version should stay simple:
+
+- start with per-edge and per-edge-type weights derived from counts and decay
+- use those weights as ranking features, not as automatic graph mutations
+- keep weights scoped by repo, and possibly by user or workspace later
+- decay old behavior so one past task does not dominate future retrieval forever
+
+Good initial candidates:
+
+- `DOC_DESCRIBES_SYMBOL`
+- `DOC_DESCRIBES_FILE`
+- `CONFIG_AFFECTS_FILE`
+- explicit memory-to-code links
+- commit-to-file edges once commit nodes exist
+
+Guardrails:
+
+- reviewed edges should start with a stronger prior than fully automatic edges
+- traversal frequency alone should not imply truth; popular but noisy edges must be suppressible
+- benchmark and trace instrumentation should stay the source of truth for whether weighting actually helps
 
 ## Done
 
@@ -270,6 +420,7 @@ The following items from the backlog are now at least MVP-implemented:
 - `ariadne trace`
 - `ariadne retrieval-logs`
 - `ariadne doctor`
+- `ARIADNE_STRICT_DB_COMPATIBILITY`
 - live fixture benchmark runner against the real Postgres-backed path
 
 These are implemented, but not all are fully tuned yet.
@@ -526,8 +677,9 @@ Completed:
 Next:
 
 1. ranking and symbol-generation follow-up from Spinner diagnostics
-2. `SYMBOL_CALLS_SYMBOL`
-3. subsystem nodes
-4. second fixture repo
-5. commit nodes
-6. reviewed cross-tree similarity links
+2. adaptive edge weighting from retrieval traces and benchmark outcomes
+3. `SYMBOL_CALLS_SYMBOL`
+4. subsystem nodes
+5. second fixture repo
+6. commit nodes
+7. reviewed cross-tree similarity links

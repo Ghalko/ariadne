@@ -6,6 +6,7 @@ from pathlib import Path
 import typer
 
 from ariadne_index.bootstrap import build_services
+from ariadne_index.config import get_settings
 from ariadne_index.db import database_diagnostics, init_database, session_scope
 from ariadne_index.models.entities import RetrievalLog
 from ariadne_index.schemas import MemoryCreate, MemoryLinkCreate, RepoCreate
@@ -207,6 +208,19 @@ def retrieval_logs(
 def doctor(database_url: str | None = typer.Option(default=None)) -> None:
     diagnostics = database_diagnostics(database_url)
     typer.echo(json.dumps(diagnostics, indent=2))
+
+
+@app.command("reconcile-embeddings")
+def reconcile_embeddings(
+    target_dimensions: int | None = typer.Option(default=None),
+    database_url: str | None = typer.Option(default=None),
+) -> None:
+    with session_scope(database_url) as session:
+        services = build_services(session)
+        payload = services["maintenance"].reconcile_embeddings(
+            target_dimensions=target_dimensions or get_settings().embedding_dimensions
+        )
+        typer.echo(json.dumps(payload, indent=2))
 
 
 @memory_app.command("add")

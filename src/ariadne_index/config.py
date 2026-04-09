@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     embedding_provider: str = Field(default="auto")
     embedding_model: str = Field(default="text-embedding-3-small")
     embedding_dimensions: int = Field(default=1024)
+    strict_db_compatibility: bool = Field(default=False)
     openai_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("OPENAI_API_KEY", "ARIADNE_OPENAI_API_KEY"),

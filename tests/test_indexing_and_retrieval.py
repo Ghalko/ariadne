@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import pytest
+
+from ariadne_index import bootstrap
+from ariadne_index.config import get_settings
 from ariadne_index.bootstrap import build_services
-from ariadne_index.models.entities import Edge, RetrievalLog
+from ariadne_index.models.entities import Edge, Embedding, RetrievalLog
 from ariadne_index.models.enums import EdgeType
 from ariadne_index.schemas import MemoryCreate, MemoryLinkCreate, RepoCreate
 
@@ -110,3 +114,38 @@ def test_retrieve_persists_diagnostics_in_retrieval_log(db_session, sample_repo)
     assert log is not None
     assert log.diagnostics_json["stage_counts"]["lexical"]["files"] >= 0
     assert log.diagnostics_json["ranked_candidates"]
+
+
+def test_build_services_can_fail_fast_on_db_compatibility(monkeypatch, db_session) -> None:
+    monkeypatch.setenv("ARIADNE_STRICT_DB_COMPATIBILITY", "true")
+    get_settings.cache_clear()
+    monkeypatch.setattr(bootstrap, "compatibility_issues_for_engine", lambda engine: ["dimension mismatch"])
+
+    with pytest.raises(ValueError, match="dimension mismatch"):
+        build_services(db_session)
+
+    get_settings.cache_clear()
+
+
+def test_reconcile_embeddings_rebuilds_file_symbol_and_memory_embeddings(db_session, sample_repo) -> None:
+    services = build_services(db_session)
+    repo = services["repos"].add_repo(RepoCreate(name="sample", local_path=str(sample_repo)))
+    services["indexing"].index_repo(repo)
+    services["memory"].create_memory(
+        MemoryCreate(
+            repo_id=repo.id,
+            title="Retry decision",
+            content="Keep retries bounded.",
+            summary="Keep retry budget bounded.",
+            memory_type="decision",
+        )
+    )
+
+    before = db_session.query(Embedding).count()
+    result = services["maintenance"].reconcile_embeddings(target_dimensions=get_settings().embedding_dimensions)
+    after = db_session.query(Embedding).count()
+
+    assert before > 0
+    assert result["repos_reindexed"] == 1
+    assert result["memory_embeddings_rebuilt"] == 1
+    assert after > 0

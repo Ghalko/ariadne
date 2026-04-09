@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from collections.abc import Iterator
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from ariadne_index.config import get_settings
@@ -28,6 +28,10 @@ def init_database(database_url: str | None = None) -> None:
 
 def database_diagnostics(database_url: str | None = None) -> dict:
     engine = build_engine(database_url)
+    return database_diagnostics_for_engine(engine)
+
+
+def database_diagnostics_for_engine(engine: Engine) -> dict:
     inspector = inspect(engine)
     settings = get_settings()
     diagnostics = {
@@ -103,6 +107,11 @@ def database_diagnostics(database_url: str | None = None) -> dict:
             )
 
     return diagnostics
+
+
+def compatibility_issues_for_engine(engine: Engine) -> list[str]:
+    diagnostics = database_diagnostics_for_engine(engine)
+    return list(diagnostics["issues"])
 
 
 def _parse_vector_dimensions(vector_type: str | None) -> int | None:

@@ -125,6 +125,10 @@ Useful `uv` commands:
 uv sync --extra dev --extra postgres --extra treesitter
 pytest -q
 ariadne repos
+ariadne doctor
+ariadne reconcile-embeddings
+ariadne trace "What config and docs describe provider selection and fallback?" --mode docs --repo-name repo-name
+ariadne retrieval-logs --repo-name repo-name --limit 5
 ariadne pack-context "refactor retry logic" --mode refactor --repo-name repo-name
 uvicorn ariadne_index.api:app --reload
 ```
@@ -152,3 +156,7 @@ SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';
 - The Postgres base image is AWS-hosted; `pgvector` is compiled into that image at build time.
 - Use `uv python install 3.14`, `uv venv --python 3.14`, and `source .venv/bin/activate` for the normal interactive workflow.
 - If you created an older local database with 24-dimensional embeddings, recreate it before switching to the new 1024-dimensional OpenAI setup.
+- `ariadne doctor` checks schema state, `pgvector`, and embedding-dimension compatibility.
+- `ariadne reconcile-embeddings` rebuilds the embeddings layer in place and is the intended recovery path when the vector dimensions drift from the configured default.
+- If your local DB is still on the older `vector(24)` schema, either recreate it at `1024` or temporarily run with `ARIADNE_EMBEDDING_DIMENSIONS=24`.
+- Set `ARIADNE_STRICT_DB_COMPATIBILITY=true` if you want Ariadne to fail fast when the configured embedding dimensions do not match the live DB.
