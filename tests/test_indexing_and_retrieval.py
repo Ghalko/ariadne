@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ariadne_index.bootstrap import build_services
-from ariadne_index.models.entities import Edge
+from ariadne_index.models.entities import Edge, RetrievalLog
 from ariadne_index.models.enums import EdgeType
 from ariadne_index.schemas import MemoryCreate, MemoryLinkCreate, RepoCreate
 
@@ -91,3 +91,22 @@ def test_indexing_creates_config_affects_file_edges(db_session, sample_repo) -> 
     edges = db_session.query(Edge).filter(Edge.repo_id == repo.id, Edge.edge_type == EdgeType.config_affects_file).all()
     assert edges
     assert any(edge.from_node_kind == "file" and edge.to_node_kind == "file" for edge in edges)
+
+
+def test_retrieve_persists_diagnostics_in_retrieval_log(db_session, sample_repo) -> None:
+    services = build_services(db_session)
+    repo = services["repos"].add_repo(RepoCreate(name="sample", local_path=str(sample_repo)))
+    services["indexing"].index_repo(repo)
+
+    payload = services["retrieval"].retrieve(
+        query="Where is retry logic configured and tested?",
+        mode="bugfix",
+        repo=repo,
+        include_code=False,
+    )
+
+    assert "stage_counts" in payload["diagnostics"]
+    log = db_session.query(RetrievalLog).order_by(RetrievalLog.id.desc()).first()
+    assert log is not None
+    assert log.diagnostics_json["stage_counts"]["lexical"]["files"] >= 0
+    assert log.diagnostics_json["ranked_candidates"]

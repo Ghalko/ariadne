@@ -138,12 +138,21 @@ def seed_doc_memories(repo_id: int, memory_service, session, *, fixture_root: Pa
 
     files = list(session.query(FileRecord).filter(FileRecord.repo_id == repo_id))
     symbols = list(session.query(SymbolRecord).filter(SymbolRecord.repo_id == repo_id))
+    existing = {
+        (
+            memory.title,
+            (memory.metadata_json or {}).get("source_path"),
+        )
+        for memory in memory_service.list_memories(repo_id)
+    }
     docs = sorted((fixture_root / "docs").rglob("*.md"))
     for doc_path in docs:
         relative = doc_path.relative_to(fixture_root).as_posix()
         content = doc_path.read_text(encoding="utf-8")
         title = next((line.strip("# ").strip() for line in content.splitlines() if line.startswith("#")), doc_path.stem)
         summary = next((line.strip() for line in content.splitlines() if line.strip() and not line.startswith("#")), title)
+        if (title, relative) in existing:
+            continue
         memory_type = infer_memory_type(relative)
         memory = memory_service.create_memory(
             MemoryCreate(

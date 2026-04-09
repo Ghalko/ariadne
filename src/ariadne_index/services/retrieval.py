@@ -229,12 +229,20 @@ class RetrievalService:
             include_code=include_code,
         )
         self._record_packed_entities(diagnostics, packed)
-        self._log_retrieval(repo_id=repo_id, query=query, mode=mode, ordered=ordered, packed=packed)
+        rendered_diagnostics = self._render_diagnostics(diagnostics, ordered=ordered, reasons=reasons)
+        self._log_retrieval(
+            repo_id=repo_id,
+            query=query,
+            mode=mode,
+            ordered=ordered,
+            packed=packed,
+            diagnostics=rendered_diagnostics,
+        )
         return {
             "mode": mode,
             "scores": [{"node": key, "score": float(score)} for key, score in ordered[:limit]],
             "context": packed,
-            "diagnostics": self._render_diagnostics(diagnostics, ordered=ordered, reasons=reasons),
+            "diagnostics": rendered_diagnostics,
         }
 
     def _select_ranked_by_type(
@@ -508,6 +516,31 @@ class RetrievalService:
                 diagnostics=diagnostics,
             )
 
+        file_symbol_counts: dict[int, int] = defaultdict(int)
+        for symbol in symbols:
+            file_symbol_counts[symbol.file_id] += 1
+
+        top_file_ids = {file_id for file_id, _ in file_candidates[:5]}
+        for symbol in symbols:
+            if symbol.file_id not in top_file_ids or file_symbol_counts[symbol.file_id] > 2:
+                continue
+            key = f"symbol:{symbol.id}"
+            if key in scores:
+                continue
+            scores[key] += self._support_symbol_bonus(mode=mode)
+            reasons.setdefault(key, "symbol promoted from compact ranked file")
+            self._record_stage_hit(diagnostics, "graph", key)
+            self._promote_symbol_owner_file(
+                key=key,
+                scores=scores,
+                reasons=reasons,
+                graph_weight=0.8,
+                mode=mode,
+                source="symbol",
+                reason="owner file reinforced from compact ranked file symbol",
+                diagnostics=diagnostics,
+            )
+
     def _query_aliases(self, query: str) -> set[str]:
         terms = self._terms(query)
         aliases = set(terms)
@@ -524,6 +557,13 @@ class RetrievalService:
         if mode in {"refactor", "bugfix", "testgen"}:
             return 6.0
         return 5.0
+
+    def _support_symbol_bonus(self, *, mode: str) -> float:
+        if mode in {"docs", "architecture"}:
+            return 2.5
+        if mode in {"refactor", "bugfix", "testgen"}:
+            return 4.0
+        return 3.0
 
     def _is_doc_focused_query(self, lowered_query: str) -> bool:
         return any(term in lowered_query for term in ("doc", "docs", "runbook", "decision", "adr", "architecture"))
@@ -582,6 +622,14 @@ class RetrievalService:
         reasons: dict[str, str],
     ) -> dict:
         return {
+            "stage_counts": {
+                stage: {
+                    "files": len(ids["file"]),
+                    "symbols": len(ids["symbol"]),
+                    "memories": len(ids["memory"]),
+                }
+                for stage, ids in diagnostics.items()
+            },
             "stages": {
                 stage: {
                     "files": self._serialize_files(ids["file"]),
@@ -625,6 +673,7 @@ class RetrievalService:
         mode: str,
         ordered: list[tuple[str, float]],
         packed: dict,
+        diagnostics: dict,
     ) -> None:
         log = RetrievalLog(
             repo_id=repo_id,
@@ -635,6 +684,7 @@ class RetrievalService:
                 for index, (key, _) in enumerate(ordered[:25])
             ],
             scores=[{"node": key, "score": float(score)} for key, score in ordered[:25]],
+            diagnostics_json=diagnostics,
             packed_context=packed,
         )
         self.session.add(log)

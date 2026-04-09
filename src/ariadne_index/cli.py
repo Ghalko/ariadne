@@ -6,7 +6,8 @@ from pathlib import Path
 import typer
 
 from ariadne_index.bootstrap import build_services
-from ariadne_index.db import init_database, session_scope
+from ariadne_index.db import database_diagnostics, init_database, session_scope
+from ariadne_index.models.entities import RetrievalLog
 from ariadne_index.schemas import MemoryCreate, MemoryLinkCreate, RepoCreate
 
 app = typer.Typer(help="Repo indexing, graph retrieval, and durable memory.")
@@ -148,6 +149,66 @@ def retrieve(
         typer.echo(json.dumps(payload, indent=2))
 
 
+@app.command("trace")
+def trace_query(
+    query: str,
+    mode: str = typer.Option(default="understand"),
+    repo_name: str | None = typer.Option(default=None),
+    limit: int = typer.Option(default=12),
+    include_code: bool = typer.Option(default=False),
+    database_url: str | None = typer.Option(default=None),
+) -> None:
+    with session_scope(database_url) as session:
+        services = build_services(session)
+        repo = services["repos"].get_repo_by_name(repo_name) if repo_name else None
+        payload = services["retrieval"].retrieve(
+            query=query,
+            mode=mode,
+            repo=repo,
+            limit=limit,
+            include_code=include_code,
+        )
+        typer.echo(json.dumps(_trace_summary(payload), indent=2))
+
+
+@app.command("retrieval-logs")
+def retrieval_logs(
+    repo_name: str | None = typer.Option(default=None),
+    limit: int = typer.Option(default=10),
+    database_url: str | None = typer.Option(default=None),
+) -> None:
+    with session_scope(database_url) as session:
+        repo = build_services(session)["repos"].get_repo_by_name(repo_name) if repo_name else None
+        query = session.query(RetrievalLog)
+        if repo is not None:
+            query = query.filter(RetrievalLog.repo_id == repo.id)
+        logs = query.order_by(RetrievalLog.created_at.desc()).limit(limit).all()
+        typer.echo(
+            json.dumps(
+                [
+                    {
+                        "id": log.id,
+                        "query": log.query_text,
+                        "mode": log.mode,
+                        "created_at": log.created_at.isoformat() if log.created_at else None,
+                        "packed_files": len(log.packed_context.get("files", [])),
+                        "packed_symbols": len(log.packed_context.get("symbols", [])),
+                        "packed_memories": len(log.packed_context.get("memories", [])),
+                        "stage_counts": (log.diagnostics_json or {}).get("stage_counts", {}),
+                    }
+                    for log in logs
+                ],
+                indent=2,
+            )
+        )
+
+
+@app.command()
+def doctor(database_url: str | None = typer.Option(default=None)) -> None:
+    diagnostics = database_diagnostics(database_url)
+    typer.echo(json.dumps(diagnostics, indent=2))
+
+
 @memory_app.command("add")
 def add_memory(
     title: str,
@@ -216,3 +277,19 @@ def link_memory(
             )
         )
         typer.echo(json.dumps({"id": edge.id, "type": edge.edge_type.value}, indent=2))
+
+
+def _trace_summary(payload: dict) -> dict:
+    diagnostics = payload.get("diagnostics", {})
+    ranked = diagnostics.get("ranked_candidates", [])
+    top_ranked = ranked[:10]
+    return {
+        "mode": payload.get("mode"),
+        "stage_counts": diagnostics.get("stage_counts", {}),
+        "top_ranked": top_ranked,
+        "packed": {
+            "files": [item["path"] for item in payload["context"].get("files", [])],
+            "symbols": [item["qualified_name"] for item in payload["context"].get("symbols", [])],
+            "memories": [item["title"] for item in payload["context"].get("memories", [])],
+        },
+    }

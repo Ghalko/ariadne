@@ -164,6 +164,7 @@ class RetrievalLog(Base):
     mode: Mapped[str] = mapped_column(String(64), index=True)
     retrieved_node_ids: Mapped[list[dict]] = mapped_column(JSON, default=list)
     scores: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    diagnostics_json: Mapped[dict] = mapped_column(JSON, default=dict)
     packed_context: Mapped[dict] = mapped_column(JSON, default=dict)
     outcome: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

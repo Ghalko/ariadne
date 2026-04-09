@@ -8,6 +8,8 @@ The project is past the initial scaffold stage. Ariadne now has:
 - a local benchmark fixture repo in `spinner/`
 - a second benchmark fixture repo in `quay/`
 - a repeatable benchmark runner with miss diagnostics
+- live retrieval traces and persisted retrieval-log diagnostics
+- a DB doctor path for schema and embedding compatibility checks
 
 Current benchmark baselines:
 
@@ -28,6 +30,26 @@ Quay:
 - doc hit rate: `0.833`
 - memory hit rate: `1.0`
 - avg artifact recall: `0.692`
+
+Current live benchmark baselines on the existing Postgres DB with `ARIADNE_EMBEDDING_DIMENSIONS=24`:
+
+Spinner live:
+
+- file hit rate: `1.0`
+- symbol hit rate: `1.0`
+- test hit rate: `1.0`
+- doc hit rate: `0.545`
+- memory hit rate: `1.0`
+- avg artifact recall: `0.705`
+
+Quay live:
+
+- file hit rate: `1.0`
+- symbol hit rate: `1.0`
+- test hit rate: `0.8`
+- doc hit rate: `0.833`
+- memory hit rate: `1.0`
+- avg artifact recall: `0.717`
 
 Most remaining misses are now:
 
@@ -102,18 +124,18 @@ Practical implication for Ariadne:
 
 The next work should follow from the current benchmark and direction, not from feature sprawl.
 
-### 1. Use live retrieval traces on Spinner and Quay before another ranking pass
+### 1. Align the live Postgres embedding schema with the app default
 
 Why:
 
-- benchmark diagnostics are useful, but we should compare them with live `ariadne retrieve` traces too
-- the benchmark harness can still hide issues that show up in the real Postgres-backed path
+- the live DB is still on `vector(24)` while the app default is `1024`
+- we can validate the live path today by overriding `ARIADNE_EMBEDDING_DIMENSIONS=24`, but that should not remain the normal workflow
 
 Focus:
 
-- expose and inspect stage diagnostics through CLI/API
-- compare benchmark and live retrieval for the same queries
-- confirm remaining misses are still mostly `scored_too_low`
+- either migrate the embeddings table to `1024` or intentionally pin local dev to `24`
+- document the reset/migration path clearly
+- keep `ariadne doctor` as the quick compatibility check
 
 ### 2. Improve doc and config ranking where candidates already exist
 
@@ -159,7 +181,20 @@ Next:
 - avoid improving one while silently regressing the other
 - treat cross-fixture improvement as the default success criterion for ranking work
 
-### 5. Add release and migration hygiene
+### 5. Keep live traces and retrieval logs central to tuning work
+
+Why:
+
+- the live path is now inspectable, and it exposed slightly different failure patterns than the SQLite benchmark harness
+- we should not do blind ranking work again now that we can look at real stage counts and packed outputs
+
+Next:
+
+- use `ariadne trace` and `ariadne retrieval-logs` for weak queries before changing ranking
+- compare live and benchmark misses for the same task
+- keep the packed-context output reviewable when tuning ranking
+
+### 6. Add release and migration hygiene
 
 Why:
 
@@ -168,24 +203,9 @@ Why:
 
 Next:
 
-- add an embedding-dimension compatibility check at startup
-- add a repair or migration workflow for vector dimension changes
 - document DB reset vs migration paths clearly
 - add packaging/release checklist items
-
-### 6. Make retrieval traces first-class
-
-Why:
-
-- the new benchmark diagnostics are already useful
-- we should make query-stage traces inspectable outside benchmark runs too
-
-Next:
-
-- persist richer retrieval traces in retrieval logs
-- expose stage diagnostics via API and CLI
-- make it easy to inspect why a file or memory was included or missed
-- include per-stage candidate counts and top misses in benchmark output snapshots
+- consider failing fast when configured dimensions and DB vector type differ
 
 ### 7. Add a second-order trust layer
 
@@ -227,7 +247,7 @@ What this means:
 
 Immediate next moves:
 
-- inspect live retrieval traces for the remaining weak Spinner and Quay queries
+- reconcile the live DB from `vector(24)` to the intended default
 - improve README and top-level docs retrieval for `understand` queries
 - tighten config-file recall for support-heavy queries
 - close the remaining symbol misses: `build_plan`, `load_openai_settings`, `record_session_run`, `append_audit_event`
@@ -246,6 +266,11 @@ The following items from the backlog are now at least MVP-implemented:
 - retrieval benchmark runner
 - retrieval miss diagnostics (`not_generated`, `scored_too_low`, `packed_out`)
 - lexical ranking improvements for files, symbols, and memories
+- persisted retrieval-log diagnostics
+- `ariadne trace`
+- `ariadne retrieval-logs`
+- `ariadne doctor`
+- live fixture benchmark runner against the real Postgres-backed path
 
 These are implemented, but not all are fully tuned yet.
 

@@ -6,7 +6,8 @@ from fastapi import Depends, FastAPI
 from sqlalchemy.orm import Session
 
 from ariadne_index.bootstrap import build_services
-from ariadne_index.db import build_session_factory, init_database
+from ariadne_index.db import build_session_factory, database_diagnostics, init_database
+from ariadne_index.models.entities import RetrievalLog
 from ariadne_index.schemas import GraphQuery, MemoryCreate, MemoryLinkCreate, RepoCreate, RetrieveQuery, SearchQuery
 
 app = FastAPI(title="Ariadne", version="0.1.0")
@@ -33,6 +34,12 @@ def startup() -> None:
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/health/details")
+def health_details() -> dict:
+    diagnostics = database_diagnostics()
+    return {"status": "ok" if not diagnostics["issues"] else "warning", **diagnostics}
 
 
 @app.post("/repos")
@@ -97,6 +104,26 @@ def retrieve(payload: RetrieveQuery, session: Session = Depends(get_session)) ->
     )
 
 
+@app.post("/retrieve/trace")
+def retrieve_trace(payload: RetrieveQuery, session: Session = Depends(get_session)) -> dict:
+    services = build_services(session)
+    repo = services["repos"].get_repo_by_name(payload.repo_name) if payload.repo_name else None
+    result = services["retrieval"].retrieve(
+        query=payload.query,
+        mode=payload.mode,
+        repo=repo,
+        limit=payload.limit,
+        include_code=payload.include_code,
+    )
+    diagnostics = result.get("diagnostics", {})
+    return {
+        "mode": result["mode"],
+        "stage_counts": diagnostics.get("stage_counts", {}),
+        "top_ranked": diagnostics.get("ranked_candidates", [])[:10],
+        "packed": result["context"],
+    }
+
+
 @app.post("/pack-context")
 def pack_context(payload: RetrieveQuery, session: Session = Depends(get_session)) -> dict:
     services = build_services(session)
@@ -146,3 +173,29 @@ def list_memories(repo_id: int | None = None, session: Session = Depends(get_ses
 def link_memory(payload: MemoryLinkCreate, session: Session = Depends(get_session)) -> dict:
     edge = build_services(session)["memory"].link_memory(payload)
     return {"id": edge.id, "type": edge.edge_type.value}
+
+
+@app.get("/retrieval-logs")
+def retrieval_logs(
+    repo_name: str | None = None,
+    limit: int = 10,
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    repo = build_services(session)["repos"].get_repo_by_name(repo_name) if repo_name else None
+    query = session.query(RetrievalLog)
+    if repo is not None:
+        query = query.filter(RetrievalLog.repo_id == repo.id)
+    logs = query.order_by(RetrievalLog.created_at.desc()).limit(limit).all()
+    return [
+        {
+            "id": log.id,
+            "query": log.query_text,
+            "mode": log.mode,
+            "created_at": log.created_at.isoformat() if log.created_at else None,
+            "packed_files": len(log.packed_context.get("files", [])),
+            "packed_symbols": len(log.packed_context.get("symbols", [])),
+            "packed_memories": len(log.packed_context.get("memories", [])),
+            "stage_counts": (log.diagnostics_json or {}).get("stage_counts", {}),
+        }
+        for log in logs
+    ]
