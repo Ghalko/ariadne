@@ -3,14 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from ariadne_index.models.entities import FileRecord, Repo, SymbolRecord
+from ariadne_index.config import get_settings
+from ariadne_index.models.entities import Edge, Embedding, FileRecord, Repo, SymbolRecord
 from ariadne_index.models.enums import EdgeType
 from ariadne_index.parsers.registry import ParserRegistry
 from ariadne_index.services.embeddings import EmbeddingProvider
 from ariadne_index.services.filesystem import discover_files, sha256_text
 from ariadne_index.services.graph import GraphService
+from ariadne_index.services.repository import RepoService
 from ariadne_index.services.storage import upsert_embedding
 
 
@@ -18,12 +21,16 @@ class IndexingService:
     def __init__(self, session: Session, embedder: EmbeddingProvider) -> None:
         self.session = session
         self.embedder = embedder
+        self.settings = get_settings()
         self.parsers = ParserRegistry()
         self.graph = GraphService(session)
 
     def index_repo(self, repo: Repo) -> dict:
+        RepoService(self.session).refresh_repo_metadata(repo)
         root = Path(repo.local_path)
-        files = discover_files(root, repo.include_globs, repo.exclude_globs)
+        files = self._discover_repo_files(repo, root)
+        discovered_paths = {path.relative_to(root).as_posix() for path in files}
+        self._prune_missing_files(repo, discovered_paths)
         indexed = 0
         skipped = 0
 
@@ -62,6 +69,69 @@ class IndexingService:
 
         return {"repo": repo.name, "indexed": indexed, "skipped": skipped, "discovered": len(files)}
 
+    def _discover_repo_files(self, repo: Repo, root: Path) -> list[Path]:
+        files = discover_files(root, repo.include_globs, self._effective_exclude_globs(repo))
+        nested_prefixes = self._nested_repo_relative_prefixes(repo, root)
+        if not nested_prefixes:
+            return files
+        return [
+            path
+            for path in files
+            if not self._is_within_nested_repo(path.relative_to(root).as_posix(), nested_prefixes)
+        ]
+
+    def _effective_exclude_globs(self, repo: Repo) -> list[str]:
+        recursive_artifact_excludes = [
+            "**/.git/**",
+            "**/node_modules/**",
+            "**/.venv/**",
+            "**/venv/**",
+            "**/dist/**",
+            "**/build/**",
+            "**/__pycache__/**",
+            "**/.pytest_cache/**",
+        ]
+        combined = [*repo.exclude_globs, *self.settings.default_exclude_globs, *recursive_artifact_excludes]
+        return list(dict.fromkeys(combined))
+
+    def _nested_repo_relative_prefixes(self, repo: Repo, root: Path) -> tuple[str, ...]:
+        prefixes: list[str] = []
+        for other_repo in self.session.query(Repo).filter(Repo.id != repo.id):
+            try:
+                relative = Path(other_repo.local_path).resolve().relative_to(root.resolve())
+            except ValueError:
+                continue
+            if relative == Path("."):
+                continue
+            prefixes.append(f"{relative.as_posix().rstrip('/')}/")
+        return tuple(sorted(set(prefixes)))
+
+    def _is_within_nested_repo(self, relative_path: str, nested_prefixes: tuple[str, ...]) -> bool:
+        return any(relative_path.startswith(prefix) for prefix in nested_prefixes)
+
+    def _prune_missing_files(self, repo: Repo, discovered_paths: set[str]) -> None:
+        stale_files = (
+            self.session.query(FileRecord)
+            .filter(FileRecord.repo_id == repo.id)
+            .filter(~FileRecord.path.in_(discovered_paths))
+            .all()
+        )
+        if not stale_files:
+            return
+
+        stale_file_ids = [file.id for file in stale_files]
+        stale_symbol_ids = [
+            symbol_id
+            for (symbol_id,) in self.session.query(SymbolRecord.id).filter(SymbolRecord.file_id.in_(stale_file_ids)).all()
+        ]
+        self._delete_graph_and_embedding_artifacts(repo.id, file_ids=stale_file_ids, symbol_ids=stale_symbol_ids)
+        if stale_symbol_ids:
+            self.session.query(SymbolRecord).filter(SymbolRecord.id.in_(stale_symbol_ids)).delete(
+                synchronize_session=False
+            )
+        self.session.query(FileRecord).filter(FileRecord.id.in_(stale_file_ids)).delete(synchronize_session=False)
+        self.session.flush()
+
     def _upsert_file(self, repo: Repo, relative_path: str, checksum: str, parsed, *, content: str) -> FileRecord:
         file_record = (
             self.session.query(FileRecord)
@@ -86,7 +156,15 @@ class IndexingService:
         return file_record
 
     def _replace_symbols(self, repo: Repo, file_record: FileRecord, parsed) -> None:
-        self.session.query(SymbolRecord).filter(SymbolRecord.file_id == file_record.id).delete()
+        existing_symbol_ids = [
+            symbol_id
+            for (symbol_id,) in self.session.query(SymbolRecord.id).filter(SymbolRecord.file_id == file_record.id).all()
+        ]
+        if existing_symbol_ids:
+            self._delete_graph_and_embedding_artifacts(repo.id, file_ids=[], symbol_ids=existing_symbol_ids)
+            self.session.query(SymbolRecord).filter(SymbolRecord.id.in_(existing_symbol_ids)).delete(
+                synchronize_session=False
+            )
 
         symbols_by_name: dict[str, SymbolRecord] = {}
         for parsed_symbol in parsed.symbols:
@@ -135,9 +213,43 @@ class IndexingService:
 
         self._sync_import_edges(repo, file_record)
 
-    def _sync_import_edges(self, repo: Repo, file_record: FileRecord) -> None:
-        from ariadne_index.models.entities import Edge
+    def _delete_graph_and_embedding_artifacts(
+        self,
+        repo_id: int,
+        *,
+        file_ids: list[int],
+        symbol_ids: list[int],
+    ) -> None:
+        edge_filters = []
+        if file_ids:
+            edge_filters.extend(
+                [
+                    (Edge.from_node_kind == "file") & Edge.from_node_id.in_(file_ids),
+                    (Edge.to_node_kind == "file") & Edge.to_node_id.in_(file_ids),
+                ]
+            )
+            self.session.query(Embedding).filter(
+                Embedding.node_kind == "file",
+                Embedding.node_id.in_(file_ids),
+            ).delete(synchronize_session=False)
+        if symbol_ids:
+            edge_filters.extend(
+                [
+                    (Edge.from_node_kind == "symbol") & Edge.from_node_id.in_(symbol_ids),
+                    (Edge.to_node_kind == "symbol") & Edge.to_node_id.in_(symbol_ids),
+                ]
+            )
+            self.session.query(Embedding).filter(
+                Embedding.node_kind == "symbol",
+                Embedding.node_id.in_(symbol_ids),
+            ).delete(synchronize_session=False)
+        if edge_filters:
+            self.session.query(Edge).filter(Edge.repo_id == repo_id).filter(or_(*edge_filters)).delete(
+                synchronize_session=False
+            )
+        self.session.flush()
 
+    def _sync_import_edges(self, repo: Repo, file_record: FileRecord) -> None:
         self.session.query(Edge).filter(
             Edge.repo_id == repo.id,
             Edge.from_node_kind == "file",
@@ -163,8 +275,6 @@ class IndexingService:
             )
 
     def _sync_test_edges(self, repo: Repo) -> None:
-        from ariadne_index.models.entities import Edge
-
         self.session.query(Edge).filter(
             Edge.repo_id == repo.id,
             Edge.edge_type == EdgeType.test_covers_symbol,
@@ -198,8 +308,6 @@ class IndexingService:
                     )
 
     def _sync_doc_edges(self, repo: Repo) -> None:
-        from ariadne_index.models.entities import Edge
-
         self.session.query(Edge).filter(
             Edge.repo_id == repo.id,
             Edge.edge_type.in_([EdgeType.doc_describes_symbol, EdgeType.doc_describes_file]),
@@ -257,8 +365,6 @@ class IndexingService:
                 )
 
     def _sync_config_edges(self, repo: Repo) -> None:
-        from ariadne_index.models.entities import Edge
-
         self.session.query(Edge).filter(
             Edge.repo_id == repo.id,
             Edge.edge_type == EdgeType.config_affects_file,

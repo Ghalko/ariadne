@@ -25,10 +25,7 @@ class RepoService:
             include_globs=payload.include_globs or self.settings.default_include_globs,
             exclude_globs=payload.exclude_globs or self.settings.default_exclude_globs,
         )
-        if Path(repo.local_path, ".git").exists():
-            repo.default_branch = repo.default_branch or self._git_output(repo.local_path, "rev-parse", "--abbrev-ref", "HEAD")
-            repo.active_branch = repo.active_branch or repo.default_branch
-            repo.current_commit_sha = repo.current_commit_sha or self._git_output(repo.local_path, "rev-parse", "HEAD")
+        self.refresh_repo_metadata(repo, overwrite=False)
 
         self.session.add(repo)
         self.session.flush()
@@ -42,6 +39,23 @@ class RepoService:
 
     def list_repos(self) -> list[Repo]:
         return list(self.session.query(Repo).order_by(Repo.name))
+
+    def refresh_repo_metadata(self, repo: Repo, *, overwrite: bool = True) -> Repo:
+        if not Path(repo.local_path, ".git").exists():
+            return repo
+
+        default_branch = self._git_output(repo.local_path, "rev-parse", "--abbrev-ref", "HEAD")
+        current_commit_sha = self._git_output(repo.local_path, "rev-parse", "HEAD")
+
+        if overwrite or not repo.default_branch:
+            repo.default_branch = default_branch
+        if overwrite or not repo.active_branch:
+            repo.active_branch = default_branch
+        if overwrite or not repo.current_commit_sha:
+            repo.current_commit_sha = current_commit_sha
+
+        self.session.flush()
+        return repo
 
     def _git_output(self, cwd: str, *args: str) -> str | None:
         try:

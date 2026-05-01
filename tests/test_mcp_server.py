@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+
 from ariadne_index.mcp_server import AriadneMCPServer
 from ariadne_index.schemas import RepoCreate
 from ariadne_index.bootstrap import build_services
@@ -151,3 +153,75 @@ def test_mcp_repo_management_tools(sample_repo, initialized_db: str) -> None:
     payload = repo_index["result"]["structuredContent"]
     assert payload["repo"] == "sample"
     assert payload["discovered"] > 0
+
+
+def test_mcp_repo_index_refreshes_repo_commit_metadata(sample_repo, initialized_db: str) -> None:
+    _git(sample_repo, "init")
+    _git(sample_repo, "config", "user.name", "Test User")
+    _git(sample_repo, "config", "user.email", "test@example.com")
+    _git(sample_repo, "add", ".")
+    _git(sample_repo, "commit", "-m", "initial")
+    initial_commit = _git(sample_repo, "rev-parse", "HEAD")
+
+    server = AriadneMCPServer(database_url=initialized_db)
+    server.process_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test", "version": "1"}},
+        }
+    )
+
+    repo_add = server.process_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "repo_add",
+                "arguments": {"name": "sample", "local_path": str(sample_repo)},
+            },
+        }
+    )
+    assert repo_add is not None
+    assert repo_add["result"]["structuredContent"]["commit"] == initial_commit
+
+    (sample_repo / "README.md").write_text("updated\n", encoding="utf-8")
+    _git(sample_repo, "add", "README.md")
+    _git(sample_repo, "commit", "-m", "second")
+    refreshed_commit = _git(sample_repo, "rev-parse", "HEAD")
+
+    repo_index = server.process_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {"name": "repo_index", "arguments": {"repo_name": "sample"}},
+        }
+    )
+    assert repo_index is not None
+    assert repo_index["result"]["isError"] is False
+
+    repo_list = server.process_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {"name": "repo_list", "arguments": {}},
+        }
+    )
+    assert repo_list is not None
+    listed_repo = next(item for item in repo_list["result"]["structuredContent"]["repos"] if item["name"] == "sample")
+    assert listed_repo["commit"] == refreshed_commit
+
+
+def _git(repo_path, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", *args],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()

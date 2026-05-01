@@ -1,5 +1,33 @@
 # First Thread Summary
 
+## Current Handoff - 2026-05-01
+
+Working tree state:
+
+- Branch: `master`
+- Modified files:
+  - `src/ariadne_index/config.py`
+  - `src/ariadne_index/services/indexing.py`
+  - `src/ariadne_index/services/repository.py`
+  - `tests/test_indexing_and_retrieval.py`
+  - `tests/test_mcp_server.py`
+- Verification: `/Users/ghalko/.local/bin/uv run pytest tests/test_indexing_and_retrieval.py tests/test_mcp_server.py` passes, 14 tests.
+- Ariadne MCP memory/repo tools currently fail because Postgres on `127.0.0.1:5432` is not running.
+
+Current implementation focus:
+
+- Recursive default excludes now cover nested `.git`, `node_modules`, virtualenvs, build outputs, `__pycache__`, and `.pytest_cache`.
+- `IndexingService.index_repo()` refreshes repo git metadata before indexing.
+- Indexing now excludes registered nested repos when indexing a parent workspace.
+- Reindexing prunes stale file records, stale symbols, stale graph edges, and stale embeddings for files no longer discovered.
+- Symbol replacement now cleans up graph edges and embeddings for replaced symbols.
+- `RepoService.refresh_repo_metadata()` updates branch and commit metadata; MCP `repo_index` is covered by a test that commit metadata changes after a new git commit.
+
+Likely next action:
+
+- Review the uncommitted diff for edge cases around pruning, nested repo path resolution, and metadata refresh semantics.
+- Then either commit this hardening pass or continue into the planned dogfooding/documentation work for Codex MCP setup.
+
 This file captures the highest-signal outcomes from the first long build thread: what was decided, what was built, and what still exists only as an idea, partial implementation, or undocumented operational knowledge.
 
 ## Built

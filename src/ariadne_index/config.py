@@ -36,12 +36,21 @@ class Settings(BaseSettings):
     default_exclude_globs: list[str] = Field(
         default_factory=lambda: [
             ".git/**",
+            "**/.git/**",
             "node_modules/**",
+            "**/node_modules/**",
             ".venv/**",
+            "**/.venv/**",
             "venv/**",
+            "**/venv/**",
             "dist/**",
+            "**/dist/**",
             "build/**",
+            "**/build/**",
             "__pycache__/**",
+            "**/__pycache__/**",
+            ".pytest_cache/**",
+            "**/.pytest_cache/**",
         ]
     )
     workspace_root: Path = Field(default_factory=Path.cwd)

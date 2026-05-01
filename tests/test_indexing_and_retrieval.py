@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from ariadne_index import bootstrap
 from ariadne_index.config import get_settings
 from ariadne_index.bootstrap import build_services
-from ariadne_index.models.entities import Edge, Embedding, RetrievalLog
+from ariadne_index.models.entities import Edge, Embedding, FileRecord, RetrievalLog
 from ariadne_index.models.enums import EdgeType
 from ariadne_index.schemas import MemoryCreate, MemoryLinkCreate, RepoCreate
 
@@ -21,6 +23,49 @@ def test_index_repo_extracts_files_and_symbols(db_session, sample_repo) -> None:
     search = services["retrieval"].lexical.search("retry", repo_id=repo.id)
     assert any(file.path == "app/service.py" for file in search["files"])
     assert any(symbol.qualified_name == "retry_logic" for symbol in search["symbols"])
+
+
+def test_index_repo_excludes_recursive_virtualenv_and_pytest_cache_artifacts(db_session, sample_repo: Path) -> None:
+    (sample_repo / ".pytest_cache").mkdir()
+    (sample_repo / ".pytest_cache" / "README.md").write_text("cache metadata", encoding="utf-8")
+    artifact_dir = sample_repo / "tools" / ".venv" / "lib" / "python3.14" / "site-packages" / "demo"
+    artifact_dir.mkdir(parents=True)
+    (artifact_dir / "direct_url.json").write_text('{"url": "file:///tmp/demo"}', encoding="utf-8")
+
+    services = build_services(db_session)
+    repo = services["repos"].add_repo(RepoCreate(name="sample", local_path=str(sample_repo)))
+    result = services["indexing"].index_repo(repo)
+
+    indexed_paths = {file.path for file in repo.files}
+    assert result["discovered"] == 6
+    assert not any(".pytest_cache" in path for path in indexed_paths)
+    assert not any(".venv" in path for path in indexed_paths)
+
+
+def test_index_repo_prunes_nested_registered_repo_files_on_reindex(db_session, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "app").mkdir()
+    (workspace / "app" / "main.py").write_text("def run():\n    return 'root'\n", encoding="utf-8")
+
+    nested_repo = workspace / "child_repo"
+    (nested_repo / "pkg").mkdir(parents=True)
+    (nested_repo / "pkg" / "child.py").write_text("def child():\n    return 'child'\n", encoding="utf-8")
+
+    services = build_services(db_session)
+    root_repo = services["repos"].add_repo(RepoCreate(name="root", local_path=str(workspace)))
+
+    first_pass = services["indexing"].index_repo(root_repo)
+    assert first_pass["discovered"] == 2
+    assert any(file.path == "child_repo/pkg/child.py" for file in root_repo.files)
+
+    services["repos"].add_repo(RepoCreate(name="child", local_path=str(nested_repo)))
+    second_pass = services["indexing"].index_repo(root_repo)
+
+    refreshed_paths = {file.path for file in db_session.query(FileRecord).filter_by(repo_id=root_repo.id).all()}
+    assert second_pass["discovered"] == 1
+    assert "app/main.py" in refreshed_paths
+    assert "child_repo/pkg/child.py" not in refreshed_paths
 
 
 def test_retrieve_includes_memory_context(db_session, sample_repo) -> None:
