@@ -165,7 +165,13 @@ Or with `uv`:
 uv run ariadne-mcp
 ```
 
-For Codex dogfooding, point the MCP client at the `ariadne-mcp` command in this repo's activated virtualenv or use `uv run ariadne-mcp`.
+For Codex dogfooding, use the setup and workflow in [docs/codex-mcp-dogfooding.md](docs/codex-mcp-dogfooding.md).
+
+After changing MCP config or restarting Postgres, run the smoke check:
+
+```bash
+uv run python scripts/mcp_smoke.py --repo ariadne
+```
 
 If you do not want to activate the virtualenv, use `uv run` instead:
 

@@ -31,7 +31,7 @@ Current implementation focus:
 
 Likely next action:
 
-- Continue into the planned dogfooding/documentation work for Codex MCP setup.
+- Dogfood the documented Codex MCP flow in normal Ariadne work.
 - Then design the conversation/session ingest path and reviewable memory capture flow.
 
 This file captures the highest-signal outcomes from the first long build thread: what was decided, what was built, and what still exists only as an idea, partial implementation, or undocumented operational knowledge.
@@ -156,13 +156,13 @@ Desired behavior:
 
 ### 5. MCP dogfooding configuration
 
-The server exists, but the Codex-side setup and real dogfooding loop are not yet documented in a dedicated config doc or automated.
+Status: implemented in MVP form in `docs/codex-mcp-dogfooding.md` and `scripts/mcp_smoke.py`.
 
-Needed:
+Still useful follow-ups:
 
-- exact Codex MCP config examples
-- recommended workflows
-- notes on which Ariadne tools the agent should prefer first
+- keep the guide current as Codex MCP config changes
+- add smoke coverage for cross-repo retrieval if `spinner` and `quay` become first-class dogfooding targets
+- turn repeated retrieval misses found through dogfooding into benchmark cases
 
 ### 6. Public benchmark integration
 
