@@ -2,17 +2,23 @@
 
 ## Current Handoff - 2026-05-01
 
-Working tree state:
+Completed checkpoint:
 
 - Branch: `master`
-- Modified files:
+- Commit: `efc05d0` (`long haiatus`)
+- Files included:
   - `src/ariadne_index/config.py`
   - `src/ariadne_index/services/indexing.py`
   - `src/ariadne_index/services/repository.py`
   - `tests/test_indexing_and_retrieval.py`
   - `tests/test_mcp_server.py`
-- Verification: `/Users/ghalko/.local/bin/uv run pytest tests/test_indexing_and_retrieval.py tests/test_mcp_server.py` passes, 14 tests.
-- Ariadne MCP memory/repo tools currently fail because Postgres on `127.0.0.1:5432` is not running.
+  - `first_thread_summary.md`
+- Verification:
+  - `/Users/ghalko/.local/bin/uv run pytest tests/test_indexing_and_retrieval.py tests/test_mcp_server.py` passed, 14 tests.
+  - `/Users/ghalko/.local/bin/uv run pytest` passed, 16 tests.
+  - Live MCP reindex passed for `ariadne`, `spinner`, and `quay`.
+- Live Postgres status: `ariadne doctor` reports no issues, `vector(1024)`, and stored embeddings at 1024 dimensions.
+- Durable memory added: `Ariadne handoff discipline under tighter token budgets` (`id=23`).
 
 Current implementation focus:
 
@@ -25,8 +31,8 @@ Current implementation focus:
 
 Likely next action:
 
-- Review the uncommitted diff for edge cases around pruning, nested repo path resolution, and metadata refresh semantics.
-- Then either commit this hardening pass or continue into the planned dogfooding/documentation work for Codex MCP setup.
+- Continue into the planned dogfooding/documentation work for Codex MCP setup.
+- Then design the conversation/session ingest path and reviewable memory capture flow.
 
 This file captures the highest-signal outcomes from the first long build thread: what was decided, what was built, and what still exists only as an idea, partial implementation, or undocumented operational knowledge.
 
