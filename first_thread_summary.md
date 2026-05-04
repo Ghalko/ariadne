@@ -32,6 +32,7 @@ Current implementation focus:
 Likely next action:
 
 - Dogfood the documented Codex MCP flow in normal Ariadne work.
+- Run the ContextBench adapter against a small local checkout set.
 - Then design the conversation/session ingest path and reviewable memory capture flow.
 
 This file captures the highest-signal outcomes from the first long build thread: what was decided, what was built, and what still exists only as an idea, partial implementation, or undocumented operational knowledge.
@@ -166,15 +167,23 @@ Still useful follow-ups:
 
 ### 6. Public benchmark integration
 
-Still not implemented.
+Status: first adapter implemented for ContextBench in `benchmarks/run_contextbench.py`.
 
-Discussed targets:
+Current public benchmark targets:
 
+- ContextBench
 - RepoBench
 - CrossCodeEval
 - SWE-bench variants
 
-Current benchmarking is internal-fixture-only.
+ContextBench is first because it directly scores coding-agent context retrieval quality and efficiency. The adapter expects exported ContextBench rows plus local checked-out repos at the benchmark `base_commit`, then reports file recall, file precision, optional snippet span recall, packed token estimate, gold-context token estimate, and recall per 1k packed tokens.
+
+Still needed:
+
+- download/export a small verified ContextBench slice
+- clone/check out the referenced repos
+- run the adapter on a small subset
+- compare against simple lexical/raw-file baselines
 
 ### 7. Compression experiments
 
