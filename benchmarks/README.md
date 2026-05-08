@@ -9,6 +9,7 @@ This folder contains labeled benchmark data for Ariadne.
 - `run_spinner_benchmarks.py`: benchmark runner for the local `spinner` fixture repo
 - `run_quay_benchmarks.py`: benchmark runner for the local `quay` fixture repo
 - `run_live_fixture_queries.py`: benchmark runner against live indexed fixture repos in the configured DB
+- `fetch_contextbench_sample.py`: small Hugging Face rows API exporter for ContextBench JSONL samples
 - `run_contextbench.py`: adapter for exported ContextBench rows and local checked-out repos
 
 ## Run
@@ -46,8 +47,12 @@ ARIADNE_EMBEDDING_DIMENSIONS=24 PYTHONPATH=src .venv/bin/python benchmarks/run_l
 ContextBench adapter:
 
 ```bash
+PYTHONPATH=src .venv/bin/python benchmarks/fetch_contextbench_sample.py \
+  --output data/contextbench_verified_sample.jsonl \
+  --length 10
+
 PYTHONPATH=src .venv/bin/python benchmarks/run_contextbench.py \
-  --input data/contextbench_verified.jsonl \
+  --input data/contextbench_verified_sample.jsonl \
   --repo-map astropy/astropy=/path/to/astropy \
   --max-instances 10
 ```
@@ -66,3 +71,4 @@ exports, install `pandas` and a parquet engine or convert the dataset to JSONL f
 - benchmark output now includes miss diagnostics so each expected artifact is classified as `not_generated`, `scored_too_low`, or `packed_out`
 - the live runner is useful for comparing the real Postgres-backed path against the temp-DB harness before making ranking changes
 - ContextBench is the first public benchmark adapter because it directly evaluates coding-agent context retrieval quality and efficiency
+- the first real ContextBench smoke result is recorded in `benchmarks/results/contextbench-smoke-2026-05-07.md`

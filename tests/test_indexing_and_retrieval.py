@@ -68,6 +68,20 @@ def test_index_repo_prunes_nested_registered_repo_files_on_reindex(db_session, t
     assert "child_repo/pkg/child.py" not in refreshed_paths
 
 
+def test_lexical_search_caps_long_query_terms_for_sqlite(db_session, sample_repo: Path) -> None:
+    services = build_services(db_session)
+    repo = services["repos"].add_repo(RepoCreate(name="sample", local_path=str(sample_repo)))
+    services["indexing"].index_repo(repo)
+
+    query = " ".join(f"unique_contextbench_term_{index}" for index in range(250))
+    query = f"{query} retry_logic"
+
+    result = services["retrieval"].lexical.search(query, repo_id=repo.id)
+
+    assert len(services["retrieval"].lexical._terms(query)) <= 160
+    assert isinstance(result["files"], list)
+
+
 def test_retrieve_includes_memory_context(db_session, sample_repo) -> None:
     services = build_services(db_session)
     repo = services["repos"].add_repo(RepoCreate(name="sample", local_path=str(sample_repo)))

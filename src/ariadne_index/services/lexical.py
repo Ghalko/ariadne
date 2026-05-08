@@ -7,6 +7,48 @@ from sqlalchemy.orm import Session
 
 from ariadne_index.models.entities import FileRecord, Memory, SymbolRecord
 
+MAX_QUERY_TERMS = 80
+STOPWORDS = {
+    "about",
+    "after",
+    "also",
+    "and",
+    "are",
+    "because",
+    "been",
+    "before",
+    "but",
+    "can",
+    "could",
+    "does",
+    "for",
+    "from",
+    "had",
+    "has",
+    "have",
+    "how",
+    "into",
+    "not",
+    "our",
+    "out",
+    "same",
+    "should",
+    "than",
+    "that",
+    "the",
+    "then",
+    "there",
+    "these",
+    "this",
+    "when",
+    "where",
+    "which",
+    "while",
+    "with",
+    "would",
+    "you",
+}
+
 
 class LexicalSearchService:
     def __init__(self, session: Session) -> None:
@@ -46,7 +88,11 @@ class LexicalSearchService:
         return {"files": files, "symbols": symbols, "memories": memories}
 
     def _terms(self, query: str) -> list[str]:
-        base_terms = [term.lower() for term in re.split(r"\W+", query) if len(term) >= 3]
+        base_terms = [
+            term.lower()
+            for term in re.split(r"\W+", query)
+            if len(term) >= 3 and term.lower() not in STOPWORDS
+        ][:MAX_QUERY_TERMS]
         expanded: list[str] = []
         seen: set[str] = set()
         for term in base_terms or [query.lower()]:

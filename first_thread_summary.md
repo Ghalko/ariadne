@@ -180,10 +180,17 @@ ContextBench is first because it directly scores coding-agent context retrieval 
 
 Still needed:
 
-- download/export a small verified ContextBench slice
-- clone/check out the referenced repos
-- run the adapter on a small subset
+- add baselines and diagnostics to the ContextBench runner
 - compare against simple lexical/raw-file baselines
+- improve query rewriting for long issue statements
+
+First real smoke result:
+
+- exported 2 verified ContextBench rows
+- cloned `astropy/astropy`
+- evaluated one instance at base commit `6500928dc0e57be8f06d1162eacc3ba5e2eff692`
+- result: file recall `0.0`, file precision `0.0`, packed token estimate `922`, gold-context token estimate `3572`
+- interpretation: Ariadne was compact but missed all gold files, so token reduction is not meaningful yet on this public case
 
 ### 7. Compression experiments
 
