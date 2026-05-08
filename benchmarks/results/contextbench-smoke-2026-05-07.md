@@ -84,3 +84,27 @@ The run also exposed a benchmark-scale SQLite failure before scoring: long issue
 - Persist per-instance diagnostics from Ariadne retrieval in ContextBench output.
 - Improve long issue query rewriting and domain term extraction before tuning ranking.
 - Run at least 5 verified rows after adding diagnostics and baselines.
+
+## Diagnostic Rerun
+
+After adding baseline and diagnostic output to `run_contextbench.py`, the same instance showed:
+
+- Ariadne file recall: `0.0`
+- Ariadne packed token estimate: `984`
+- simple baseline file recall: `0.1111`
+- simple baseline token estimate: `250`
+- baseline hit: `astropy/coordinates/builtin_frames/cirs_observed_transforms.py`
+- missing-file reasons: `not_generated=9`, `scored_too_low=0`, `packed_out=0`
+
+This means the first public miss is a candidate-generation/query-interpretation problem, not a context-packing limit problem.
+
+Ariadne stage counts:
+
+- lexical files: `8`
+- support files: `455`
+- graph files: `12`
+- semantic files: `17`
+- selected files: `8`
+- packed files: `8`
+
+The next step should be to run 5-10 rows with this diagnostic output and inspect aggregate miss reasons before changing retrieval behavior.

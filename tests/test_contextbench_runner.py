@@ -17,6 +17,7 @@ estimate_tokens = run_contextbench.estimate_tokens
 load_rows = run_contextbench.load_rows
 parse_gold_context = run_contextbench.parse_gold_context
 score_context = run_contextbench.score_context
+baseline_retrieve = run_contextbench.baseline_retrieve
 
 FETCHER_PATH = Path(__file__).resolve().parents[1] / "benchmarks" / "fetch_contextbench_sample.py"
 FETCHER_SPEC = importlib.util.spec_from_file_location("fetch_contextbench_sample", FETCHER_PATH)
@@ -59,6 +60,20 @@ def test_score_context_reports_file_precision_recall_tokens_and_span_overlap() -
         "memories": [],
         "snippets": [{"file": "pkg/service.py", "lines": [15, 18], "code": "return True"}],
     }
+    baseline_context = {
+        "files": [{"path": "pkg/config.py"}],
+        "symbols": [],
+        "memories": [],
+        "snippets": [],
+    }
+    diagnostics = {
+        "stages": {
+            "lexical": {"files": [{"path": "pkg/config.py"}]},
+            "selected": {"files": [{"path": "pkg/config.py"}]},
+            "packed": {"files": [{"path": "pkg/service.py"}]},
+        },
+        "stage_counts": {"packed": {"files": 1, "symbols": 0, "memories": 0}},
+    }
 
     result = score_context(
         instance_id="task-1",
@@ -66,6 +81,8 @@ def test_score_context_reports_file_precision_recall_tokens_and_span_overlap() -
         base_commit="abc123",
         gold_spans=gold_spans,
         context=context,
+        baseline_context=baseline_context,
+        diagnostics=diagnostics,
     )
 
     assert result.file_recall == 0.5
@@ -75,6 +92,23 @@ def test_score_context_reports_file_precision_recall_tokens_and_span_overlap() -
     assert result.missing_files == ["pkg/config.py"]
     assert result.packed_token_estimate == estimate_tokens(json.dumps(context, sort_keys=True))
     assert result.recall_per_1k_tokens > 0
+    assert result.baseline_file_recall == 0.5
+    assert result.baseline_file_precision == 1.0
+    assert result.baseline_hit_files == ["pkg/config.py"]
+    assert result.missing_file_diagnostics == {"pkg/config.py": "packed_out"}
+    assert result.stage_counts == {"packed": {"files": 1, "symbols": 0, "memories": 0}}
+
+
+def test_baseline_retrieve_scores_path_and_content_overlap(tmp_path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pkg").mkdir()
+    (repo / "pkg" / "sliced_wcs.py").write_text("class SlicedLowLevelWCS:\n    pass\n", encoding="utf-8")
+    (repo / "pkg" / "unrelated.py").write_text("nothing useful\n", encoding="utf-8")
+
+    context = baseline_retrieve(query="SlicedLowLevelWCS world_to_pixel", repo_path=repo, limit=1)
+
+    assert [item["path"] for item in context["files"]] == ["pkg/sliced_wcs.py"]
 
 
 def test_load_rows_supports_jsonl(tmp_path) -> None:

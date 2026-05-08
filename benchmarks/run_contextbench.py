@@ -36,6 +36,14 @@ class ContextBenchResult:
     packed_token_estimate: int
     gold_context_token_estimate: int
     recall_per_1k_tokens: float
+    baseline_retrieved_files: list[str]
+    baseline_hit_files: list[str]
+    baseline_file_recall: float
+    baseline_file_precision: float
+    baseline_token_estimate: int
+    baseline_recall_per_1k_tokens: float
+    missing_file_diagnostics: dict[str, str]
+    stage_counts: dict[str, dict[str, int]]
 
 
 def parse_args() -> argparse.Namespace:
@@ -163,6 +171,8 @@ def evaluate_row(
         base_commit=base_commit,
         gold_spans=gold_spans,
         context={"files": [], "symbols": [], "memories": [], "snippets": []},
+        baseline_context={"files": [], "symbols": [], "memories": [], "snippets": []},
+        diagnostics={},
     )
 
     repo_path = resolve_repo_path(repo_slug, repo_map=repo_map, repo_base_dir=repo_base_dir)
@@ -192,12 +202,19 @@ def evaluate_row(
         limit=limit,
         include_code=include_code,
     )
+    baseline_context = baseline_retrieve(
+        query=str(row.get("problem_statement") or ""),
+        repo_path=repo_path,
+        limit=limit,
+    )
     return score_context(
         instance_id=instance_id,
         repo=repo_slug,
         base_commit=base_commit,
         gold_spans=gold_spans,
         context=payload["context"],
+        baseline_context=baseline_context,
+        diagnostics=payload.get("diagnostics", {}),
     )
 
 
@@ -208,6 +225,8 @@ def score_context(
     base_commit: str,
     gold_spans: list[GoldSpan],
     context: dict[str, Any],
+    baseline_context: dict[str, Any],
+    diagnostics: dict[str, Any],
 ) -> ContextBenchResult:
     gold_files = sorted({span.file for span in gold_spans})
     retrieved_files = [normalize_path(item["path"]) for item in context.get("files", []) if item.get("path")]
@@ -219,6 +238,13 @@ def score_context(
     gold_context_token_estimate = estimate_tokens("\n".join(span.content for span in gold_spans))
     recall_per_1k_tokens = safe_div(file_recall, packed_token_estimate / 1000, empty=0.0)
     snippet_span_recall = score_snippet_span_recall(gold_spans, context.get("snippets", []))
+    baseline_files = [normalize_path(item["path"]) for item in baseline_context.get("files", []) if item.get("path")]
+    baseline_hit_files = [path for path in gold_files if path in set(baseline_files)]
+    baseline_file_recall = safe_div(len(baseline_hit_files), len(gold_files), empty=1.0)
+    baseline_file_precision = safe_div(len(baseline_hit_files), len(baseline_files), empty=1.0 if not gold_files else 0.0)
+    baseline_token_estimate = estimate_tokens(json.dumps(baseline_context, sort_keys=True))
+    baseline_recall_per_1k_tokens = safe_div(baseline_file_recall, baseline_token_estimate / 1000, empty=0.0)
+    stage_values = diagnostic_stage_values(diagnostics)
 
     return ContextBenchResult(
         instance_id=instance_id,
@@ -235,7 +261,151 @@ def score_context(
         packed_token_estimate=packed_token_estimate,
         gold_context_token_estimate=gold_context_token_estimate,
         recall_per_1k_tokens=round(recall_per_1k_tokens, 4),
+        baseline_retrieved_files=baseline_files,
+        baseline_hit_files=baseline_hit_files,
+        baseline_file_recall=round(baseline_file_recall, 4),
+        baseline_file_precision=round(baseline_file_precision, 4),
+        baseline_token_estimate=baseline_token_estimate,
+        baseline_recall_per_1k_tokens=round(baseline_recall_per_1k_tokens, 4),
+        missing_file_diagnostics=classify_missing_files(gold_files, stage_values),
+        stage_counts=diagnostics.get("stage_counts", {}),
     )
+
+
+def baseline_retrieve(*, query: str, repo_path: Path, limit: int) -> dict[str, Any]:
+    terms = query_terms(query)
+    candidates: list[tuple[int, str, str]] = []
+    for path in sorted(repo_path.rglob("*")):
+        if not path.is_file() or should_skip_path(path, repo_path):
+            continue
+        relative = path.relative_to(repo_path).as_posix()
+        content = path.read_text(encoding="utf-8", errors="ignore")
+        score = baseline_score(relative, content, terms)
+        if score <= 0:
+            continue
+        candidates.append((score, relative, content))
+
+    candidates.sort(key=lambda item: (item[0], -len(item[1])), reverse=True)
+    return {
+        "files": [
+            {
+                "path": relative,
+                "summary": first_nonempty_line(content)[:300],
+            }
+            for _, relative, content in candidates[:limit]
+        ],
+        "symbols": [],
+        "memories": [],
+        "snippets": [],
+    }
+
+
+def baseline_score(relative_path: str, content: str, terms: list[str]) -> int:
+    haystack_path = relative_path.lower()
+    haystack_text = content[:8000].lower()
+    basename = haystack_path.rsplit("/", 1)[-1]
+    score = 0
+    for term in terms:
+        if term in basename:
+            score += 8
+        if term in haystack_path:
+            score += 5
+        if term in haystack_text:
+            score += 1
+    return score
+
+
+def should_skip_path(path: Path, root: Path) -> bool:
+    relative = path.relative_to(root).as_posix()
+    parts = set(relative.split("/"))
+    if parts.intersection({".git", "__pycache__", ".pytest_cache", ".venv", "node_modules", "build", "dist"}):
+        return True
+    return path.suffix.lower() not in {".py", ".md", ".rst", ".toml", ".yaml", ".yml", ".json", ".cfg", ".ini"}
+
+
+def first_nonempty_line(content: str) -> str:
+    return next((line.strip() for line in content.splitlines() if line.strip()), "")
+
+
+def query_terms(query: str) -> list[str]:
+    stopwords = {
+        "about",
+        "after",
+        "also",
+        "and",
+        "are",
+        "because",
+        "been",
+        "before",
+        "but",
+        "can",
+        "could",
+        "does",
+        "for",
+        "from",
+        "had",
+        "has",
+        "have",
+        "how",
+        "into",
+        "not",
+        "our",
+        "out",
+        "same",
+        "should",
+        "than",
+        "that",
+        "the",
+        "then",
+        "there",
+        "these",
+        "this",
+        "when",
+        "where",
+        "which",
+        "while",
+        "with",
+        "would",
+        "you",
+    }
+    seen: set[str] = set()
+    terms: list[str] = []
+    for term in re_split(query):
+        lowered = term.lower()
+        if len(lowered) < 3 or lowered in stopwords or lowered in seen:
+            continue
+        seen.add(lowered)
+        terms.append(lowered)
+    return terms[:80]
+
+
+def diagnostic_stage_values(diagnostics: dict[str, Any]) -> dict[str, set[str]]:
+    values: dict[str, set[str]] = {}
+    for stage, stage_payload in (diagnostics.get("stages") or {}).items():
+        values[stage] = {normalize_path(item["path"]) for item in stage_payload.get("files", []) if item.get("path")}
+    return values
+
+
+def classify_missing_files(gold_files: list[str], stages: dict[str, set[str]]) -> dict[str, str]:
+    selected = stages.get("selected", set())
+    packed = stages.get("packed", set())
+    generated = set().union(
+        stages.get("lexical", set()),
+        stages.get("support", set()),
+        stages.get("graph", set()),
+        stages.get("semantic", set()),
+    )
+    diagnostics: dict[str, str] = {}
+    for path in gold_files:
+        if path in packed:
+            continue
+        if path in selected:
+            diagnostics[path] = "packed_out"
+        elif path in generated:
+            diagnostics[path] = "scored_too_low"
+        else:
+            diagnostics[path] = "not_generated"
+    return diagnostics
 
 
 def score_snippet_span_recall(gold_spans: list[GoldSpan], snippets: list[dict[str, Any]]) -> float | None:
@@ -359,6 +529,13 @@ def summarize(results: list[ContextBenchResult]) -> dict[str, Any]:
         "avg_packed_token_estimate": average([result.packed_token_estimate for result in evaluated]),
         "avg_gold_context_token_estimate": average([result.gold_context_token_estimate for result in evaluated]),
         "avg_recall_per_1k_tokens": average([result.recall_per_1k_tokens for result in evaluated]),
+        "avg_baseline_file_recall": average([result.baseline_file_recall for result in evaluated]),
+        "avg_baseline_file_precision": average([result.baseline_file_precision for result in evaluated]),
+        "avg_baseline_token_estimate": average([result.baseline_token_estimate for result in evaluated]),
+        "avg_baseline_recall_per_1k_tokens": average(
+            [result.baseline_recall_per_1k_tokens for result in evaluated]
+        ),
+        "missing_file_reasons": aggregate_missing_reasons(evaluated),
     }
 
 
@@ -375,6 +552,11 @@ def render_report(payload: dict[str, Any]) -> str:
         f"avg packed token estimate: {summary['avg_packed_token_estimate']}",
         f"avg gold context token estimate: {summary['avg_gold_context_token_estimate']}",
         f"avg recall per 1k tokens: {summary['avg_recall_per_1k_tokens']}",
+        f"avg baseline file recall: {summary['avg_baseline_file_recall']}",
+        f"avg baseline file precision: {summary['avg_baseline_file_precision']}",
+        f"avg baseline token estimate: {summary['avg_baseline_token_estimate']}",
+        f"avg baseline recall per 1k tokens: {summary['avg_baseline_recall_per_1k_tokens']}",
+        f"missing files: {summary['missing_file_reasons']}",
         "",
         "Per-instance snapshot:",
     ]
@@ -384,9 +566,18 @@ def render_report(payload: dict[str, Any]) -> str:
             continue
         lines.append(
             f"- {result['instance_id']}: recall={result['file_recall']} precision={result['file_precision']} "
-            f"tokens={result['packed_token_estimate']} hits={result['hit_files']}"
+            f"tokens={result['packed_token_estimate']} baseline_recall={result['baseline_file_recall']} "
+            f"baseline_tokens={result['baseline_token_estimate']} hits={result['hit_files']}"
         )
     return "\n".join(lines)
+
+
+def aggregate_missing_reasons(results: list[ContextBenchResult]) -> dict[str, int]:
+    counts = {"not_generated": 0, "scored_too_low": 0, "packed_out": 0}
+    for result in results:
+        for reason in result.missing_file_diagnostics.values():
+            counts[reason] += 1
+    return counts
 
 
 def estimate_tokens(text: str) -> int:
@@ -397,6 +588,12 @@ def estimate_tokens(text: str) -> int:
 
 def normalize_path(path: str) -> str:
     return path.strip().lstrip("./")
+
+
+def re_split(text: str) -> list[str]:
+    import re
+
+    return re.split(r"[_\W]+", text)
 
 
 def optional_int(value: Any) -> int | None:

@@ -189,8 +189,11 @@ First real smoke result:
 - exported 2 verified ContextBench rows
 - cloned `astropy/astropy`
 - evaluated one instance at base commit `6500928dc0e57be8f06d1162eacc3ba5e2eff692`
-- result: file recall `0.0`, file precision `0.0`, packed token estimate `922`, gold-context token estimate `3572`
+- first result: file recall `0.0`, file precision `0.0`, packed token estimate `922`, gold-context token estimate `3572`
+- diagnostic rerun with baselines: Ariadne recall `0.0`, simple baseline recall `0.1111`, Ariadne packed token estimate `984`, baseline token estimate `250`
+- missing-file reasons: `not_generated=9`, `scored_too_low=0`, `packed_out=0`
 - interpretation: Ariadne was compact but missed all gold files, so token reduction is not meaningful yet on this public case
+- avoid overfitting this one Astropy row; run 5-10 diagnostic rows before changing ranking behavior
 
 ### 7. Compression experiments
 
