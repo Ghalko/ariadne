@@ -262,3 +262,37 @@ def test_reconcile_embeddings_rebuilds_file_symbol_and_memory_embeddings(db_sess
     assert result["repos_reindexed"] == 1
     assert result["memory_embeddings_rebuilt"] == 1
     assert after > 0
+
+
+def test_compact_database_prunes_old_retrieval_logs_without_touching_memory(db_session, sample_repo) -> None:
+    services = build_services(db_session)
+    repo = services["repos"].add_repo(RepoCreate(name="sample", local_path=str(sample_repo)))
+    services["indexing"].index_repo(repo)
+    memory = services["memory"].create_memory(
+        MemoryCreate(
+            repo_id=repo.id,
+            title="Keep this memory",
+            content="Durable memory must survive compaction.",
+            summary="Durable compaction memory",
+            memory_type="decision",
+        )
+    )
+
+    for index in range(5):
+        services["retrieval"].retrieve(
+            query=f"retry logic compaction check {index}",
+            mode="understand",
+            repo=repo,
+            include_code=False,
+        )
+
+    dry_run = services["maintenance"].compact_database(keep_retrieval_logs=2, dry_run=True)
+    assert dry_run["would_delete"]["retrieval_logs"] == 3
+    assert dry_run["deleted"]["retrieval_logs"] == 0
+    assert db_session.query(RetrievalLog).count() == 5
+
+    applied = services["maintenance"].compact_database(keep_retrieval_logs=2, dry_run=False)
+
+    assert applied["deleted"]["retrieval_logs"] == 3
+    assert db_session.query(RetrievalLog).count() == 2
+    assert services["memory"].list_memories(repo.id)[0].id == memory.id

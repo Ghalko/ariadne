@@ -7,7 +7,7 @@ import typer
 
 from ariadne_index.bootstrap import build_services
 from ariadne_index.config import get_settings
-from ariadne_index.db import database_diagnostics, init_database, session_scope
+from ariadne_index.db import build_engine, database_diagnostics, init_database, session_scope
 from ariadne_index.models.entities import RetrievalLog
 from ariadne_index.schemas import MemoryCreate, MemoryLinkCreate, RepoCreate
 from ariadne_index.services.db_migration import migrate_to_sqlite
@@ -244,6 +244,35 @@ def reconcile_embeddings(
             target_dimensions=target_dimensions or get_settings().embedding_dimensions
         )
         typer.echo(json.dumps(payload, indent=2))
+
+
+@app.command()
+def compact(
+    keep_retrieval_logs: int = typer.Option(default=100, help="Number of newest retrieval logs to keep"),
+    reindex: bool = typer.Option(default=False, help="Reindex repos before pruning orphaned rows"),
+    apply: bool = typer.Option(default=False, help="Apply changes. Without this, compact is a dry run"),
+    vacuum: bool = typer.Option(default=True, help="Run SQLite VACUUM after applying changes"),
+    database_url: str | None = typer.Option(default=None),
+) -> None:
+    with session_scope(database_url) as session:
+        services = build_services(session)
+        payload = services["maintenance"].compact_database(
+            keep_retrieval_logs=keep_retrieval_logs,
+            reindex=reindex,
+            dry_run=not apply,
+        )
+
+    payload["vacuum"] = {"requested": vacuum, "ran": False}
+    if apply and vacuum:
+        engine = build_engine(database_url)
+        if engine.dialect.name == "sqlite":
+            with engine.connect() as connection:
+                connection.exec_driver_sql("VACUUM")
+            payload["vacuum"]["ran"] = True
+        else:
+            payload["vacuum"]["skipped"] = "VACUUM is only run automatically for SQLite"
+
+    typer.echo(json.dumps(payload, indent=2))
 
 
 @memory_app.command("add")

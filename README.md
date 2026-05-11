@@ -150,6 +150,14 @@ ariadne migrate-postgres-to-sqlite .ariadne/ariadne.db \
 ARIADNE_DATABASE_URL=sqlite+pysqlite:///.ariadne/ariadne.db ariadne doctor
 ```
 
+Control local DB growth:
+
+```bash
+ariadne compact
+ariadne compact --apply --keep-retrieval-logs 100
+ariadne compact --apply --reindex --keep-retrieval-logs 100
+```
+
 ## MCP
 
 Ariadne can run as a local stdio MCP server for agent integrations.
@@ -216,6 +224,7 @@ SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';
 - `ariadne doctor` checks schema state, `pgvector`, and embedding-dimension compatibility.
 - `ariadne reconcile-embeddings` rebuilds the embeddings layer in place and is the intended recovery path when the vector dimensions drift from the configured default.
 - `ariadne migrate-postgres-to-sqlite` copies Ariadne application tables into a local SQLite file, preserving integer IDs so graph edges and embeddings remain connected.
+- `ariadne compact` prunes old retrieval logs and orphaned graph/vector rows, then runs SQLite `VACUUM` when applied.
 - If your local DB is still on the older `vector(24)` schema, either recreate it at `1024` or temporarily run with `ARIADNE_EMBEDDING_DIMENSIONS=24`.
 - Set `ARIADNE_STRICT_DB_COMPATIBILITY=true` if you want Ariadne to fail fast when the configured embedding dimensions do not match the live DB.
 - `ariadne-mcp` speaks stdio MCP and is intended to be the dogfooding path for Codex and other MCP-capable agents.

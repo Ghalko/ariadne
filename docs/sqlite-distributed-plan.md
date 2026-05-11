@@ -267,6 +267,43 @@ ARIADNE_DATABASE_URL=sqlite+pysqlite:///.ariadne/ariadne.db ariadne repos
 
 Later, this can grow a `--repo-name` filter, a dry-run row-count preview, and a secret-risk scan before writing the SQLite file.
 
+## Database Size and Consolidation
+
+Distributed SQLite files should not grow without bound or become larger than the repository in normal use.
+
+Growth sources:
+
+- retrieval logs, especially packed contexts and diagnostics
+- embeddings for files, symbols, and memories
+- stale graph edges or embeddings left behind after schema/tool changes
+- repeated local experiments and benchmark traces
+
+Policy:
+
+- repos, files, symbols, graph edges, and file/symbol embeddings are rebuildable from the working tree
+- durable memories and reviewed/manual memory edges are the highest-value portable data
+- retrieval logs are useful evidence, but they are high-churn and should have retention controls
+- compaction should be explicit and dry-run by default
+
+Initial command:
+
+```bash
+ariadne compact
+ariadne compact --apply --keep-retrieval-logs 100
+ariadne compact --apply --reindex --keep-retrieval-logs 100
+```
+
+Behavior:
+
+- dry-run by default
+- keeps the newest retrieval logs and prunes older logs only with `--apply`
+- prunes orphaned edges and embeddings
+- optionally reindexes repos before pruning
+- runs SQLite `VACUUM` after applying changes
+- does not delete repos, files, symbols, or memories as a standalone cleanup step
+
+Longer term, distributed memory should move through a mergeable export/import format. SQLite seed DBs can remain convenient runtime artifacts, but shared durable memory should not depend on merging binary DB files in git.
+
 ## What Not To Do Yet
 
 - Do not rip out Alembic in one change.
@@ -287,6 +324,7 @@ The first practical slice should be:
 5. Extend `ariadne doctor` to report migration status.
 6. Extend `ariadne doctor` with secret-risk checks for indexed paths, excerpts, previews, logs, and `.gitignore`.
 7. Keep `ariadne migrate-postgres-to-sqlite` working as the bridge for existing dogfooding data.
-8. Update README to make SQLite the public contributor default.
+8. Keep `ariadne compact` working as the size-control path for distributed SQLite files.
+9. Update README to make SQLite the public contributor default.
 
 After that lands, add UUID columns as a separate migration and dual-write them during indexing/memory creation.

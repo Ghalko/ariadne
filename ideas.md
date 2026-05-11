@@ -246,6 +246,26 @@ Future additions:
 - secret-risk scan before migration
 - post-migration `doctor` guidance for `.ariadne/` gitignore and stale pre-redaction data
 
+## SQLite Size Control
+
+If SQLite DBs are distributed as seed artifacts, Ariadne needs a consolidation path so DBs do not grow absurdly larger than the repo.
+
+Initial compact behavior:
+
+- `ariadne compact` is dry-run by default
+- `ariadne compact --apply --keep-retrieval-logs 100` prunes old retrieval logs
+- orphaned edges and embeddings are removed
+- `--reindex` refreshes rebuildable repo-derived data before pruning
+- SQLite `VACUUM` runs after applied cleanup
+- durable memories are preserved
+
+Design stance:
+
+- memory should become mergeable data with UUIDs and export/import
+- SQLite DB files can be distributed as convenient snapshots or release artifacts
+- git should not be expected to merge active binary DB files
+- retrieval logs should be retained deliberately as evidence, not accumulated forever
+
 ## TurboQuant Takeaways
 
 Google's TurboQuant work is relevant to Ariadne, but mainly as a future optimization to the semantic retrieval layer, not as a reason to change the architecture.
