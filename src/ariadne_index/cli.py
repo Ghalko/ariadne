@@ -10,6 +10,7 @@ from ariadne_index.config import get_settings
 from ariadne_index.db import database_diagnostics, init_database, session_scope
 from ariadne_index.models.entities import RetrievalLog
 from ariadne_index.schemas import MemoryCreate, MemoryLinkCreate, RepoCreate
+from ariadne_index.services.db_migration import migrate_to_sqlite
 
 app = typer.Typer(help="Repo indexing, graph retrieval, and durable memory.")
 memory_app = typer.Typer(help="Memory CRUD commands.")
@@ -208,6 +209,28 @@ def retrieval_logs(
 def doctor(database_url: str | None = typer.Option(default=None)) -> None:
     diagnostics = database_diagnostics(database_url)
     typer.echo(json.dumps(diagnostics, indent=2))
+
+
+@app.command("migrate-postgres-to-sqlite")
+def migrate_postgres_to_sqlite(
+    target_path: Path = typer.Argument(..., help="SQLite DB file to create"),
+    source_database_url: str | None = typer.Option(
+        default=None,
+        help="Source Postgres URL. Defaults to ARIADNE_DATABASE_URL.",
+    ),
+    overwrite: bool = typer.Option(default=False, help="Replace target_path if it already exists"),
+) -> None:
+    source_url = source_database_url or get_settings().database_url
+    if source_url.startswith("sqlite"):
+        typer.echo("source database must be Postgres; pass --source-database-url explicitly", err=True)
+        raise typer.Exit(code=2)
+
+    payload = migrate_to_sqlite(
+        source_database_url=source_url,
+        target_path=target_path,
+        overwrite=overwrite,
+    )
+    typer.echo(json.dumps(payload, indent=2))
 
 
 @app.command("reconcile-embeddings")

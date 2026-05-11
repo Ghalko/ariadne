@@ -222,6 +222,51 @@ Default posture:
 
 `ariadne update` can later include a cleanup migration or maintenance command that prunes newly excluded secret files and rewrites stale excerpts/previews where feasible. It should still avoid deleting local data automatically without a clear plan and backup recommendation.
 
+## Postgres to SQLite Migration
+
+The public SQLite path needs a one-command way to carry an existing Ariadne-only Postgres database into a local SQLite file.
+
+Initial command:
+
+```bash
+ariadne migrate-postgres-to-sqlite .ariadne/ariadne.db
+```
+
+With an explicit source:
+
+```bash
+ariadne migrate-postgres-to-sqlite .ariadne/ariadne.db \
+  --source-database-url postgresql+psycopg://ariadne:ariadne@127.0.0.1:5432/ariadne
+```
+
+Behavior:
+
+- source defaults to `ARIADNE_DATABASE_URL`
+- target must be SQLite
+- target file must not already exist unless `--overwrite` is passed
+- only Ariadne application tables are copied:
+  - `repos`
+  - `files`
+  - `symbols`
+  - `memories`
+  - `edges`
+  - `embeddings`
+  - `retrieval_logs`
+- original integer IDs are preserved so existing graph edges, embeddings, memories, and retrieval logs remain coherent
+- pgvector values are converted into portable JSON arrays for SQLite
+- the command is scoped to Ariadne's schema and is not a general Postgres dump tool
+
+Recommended workflow:
+
+```bash
+mkdir -p .ariadne
+ariadne migrate-postgres-to-sqlite .ariadne/ariadne.db
+ARIADNE_DATABASE_URL=sqlite+pysqlite:///.ariadne/ariadne.db ariadne doctor
+ARIADNE_DATABASE_URL=sqlite+pysqlite:///.ariadne/ariadne.db ariadne repos
+```
+
+Later, this can grow a `--repo-name` filter, a dry-run row-count preview, and a secret-risk scan before writing the SQLite file.
+
 ## What Not To Do Yet
 
 - Do not rip out Alembic in one change.
@@ -241,6 +286,7 @@ The first practical slice should be:
 4. Add `ariadne update --dry-run` and `ariadne update`.
 5. Extend `ariadne doctor` to report migration status.
 6. Extend `ariadne doctor` with secret-risk checks for indexed paths, excerpts, previews, logs, and `.gitignore`.
-7. Update README to make SQLite the public contributor default.
+7. Keep `ariadne migrate-postgres-to-sqlite` working as the bridge for existing dogfooding data.
+8. Update README to make SQLite the public contributor default.
 
 After that lands, add UUID columns as a separate migration and dual-write them during indexing/memory creation.

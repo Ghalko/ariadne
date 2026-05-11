@@ -226,6 +226,26 @@ Next safety work:
 - document that `.ariadne/` and local SQLite DB files must stay out of git
 - add an explicit cleanup/repair command for stale pre-redaction data after users back up their DB
 
+## Postgres to SQLite Bridge
+
+The SQLite branch now needs to preserve dogfooding continuity: existing Ariadne Postgres data should move into a local SQLite file without losing graph coherence.
+
+Initial bridge:
+
+- `ariadne migrate-postgres-to-sqlite .ariadne/ariadne.db`
+- source defaults to `ARIADNE_DATABASE_URL`
+- copies only Ariadne tables, not an arbitrary Postgres database
+- preserves integer IDs so edges, embeddings, memories, and retrieval logs remain connected
+- converts pgvector values into SQLite JSON arrays
+- refuses to overwrite the target DB unless `--overwrite` is explicit
+
+Future additions:
+
+- dry-run row counts before copy
+- optional `--repo-name` filtering
+- secret-risk scan before migration
+- post-migration `doctor` guidance for `.ariadne/` gitignore and stale pre-redaction data
+
 ## TurboQuant Takeaways
 
 Google's TurboQuant work is relevant to Ariadne, but mainly as a future optimization to the semantic retrieval layer, not as a reason to change the architecture.
