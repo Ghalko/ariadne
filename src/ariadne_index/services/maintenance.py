@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import json
+
+from sqlalchemy import JSON, Text, String, select
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ariadne_index.models.entities import Edge, Embedding, FileRecord, Memory, Repo, RetrievalLog, SymbolRecord
+from ariadne_index.models.base import Base
 from ariadne_index.services.embeddings import EmbeddingProvider
 from ariadne_index.services.indexing import IndexingService
+from ariadne_index.services.secrets import contains_secret, looks_like_secret_path
 from ariadne_index.services.storage import upsert_embedding
 
 
@@ -120,6 +125,53 @@ class EmbeddingMaintenanceService:
             },
         }
 
+    def scan_for_secrets(self, *, sample_limit: int = 50) -> dict:
+        findings: list[dict] = []
+
+        for file_id, path in self.session.query(FileRecord.id, FileRecord.path):
+            if looks_like_secret_path(path):
+                findings.append(
+                    {
+                        "kind": "secret_path",
+                        "table": "files",
+                        "row_id": file_id,
+                        "column": "path",
+                        "preview": path,
+                    }
+                )
+
+        for table in Base.metadata.sorted_tables:
+            if table.name == "embeddings":
+                scan_columns = [table.c.content_preview]
+            else:
+                scan_columns = [
+                    column
+                    for column in table.columns
+                    if isinstance(column.type, (String, Text, JSON))
+                ]
+            if not scan_columns:
+                continue
+
+            for row in self.session.execute(select(table.c.id, *scan_columns)):
+                row_id = row._mapping["id"]
+                for column in scan_columns:
+                    value = row._mapping[column.name]
+                    text_value = self._scan_text(value)
+                    if contains_secret(text_value):
+                        findings.append(
+                            {
+                                "kind": "secret_value",
+                                "table": table.name,
+                                "row_id": row_id,
+                                "column": column.name,
+                                "preview": self._preview(text_value),
+                            }
+                        )
+                        if len(findings) >= sample_limit:
+                            return self._scan_payload(findings, truncated=True)
+
+        return self._scan_payload(findings, truncated=False)
+
     def _table_counts(self) -> dict[str, int]:
         return {
             "repos": self.session.query(Repo).count(),
@@ -176,4 +228,24 @@ class EmbeddingMaintenanceService:
             "file": {id_ for (id_,) in self.session.query(FileRecord.id).all()},
             "symbol": {id_ for (id_,) in self.session.query(SymbolRecord.id).all()},
             "memory": {id_ for (id_,) in self.session.query(Memory.id).all()},
+        }
+
+    def _scan_text(self, value) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return value
+        return json.dumps(value, sort_keys=True, default=str)
+
+    def _preview(self, value: str | None) -> str:
+        if not value:
+            return ""
+        return value.replace("\n", "\\n")[:160]
+
+    def _scan_payload(self, findings: list[dict], *, truncated: bool) -> dict:
+        return {
+            "secret_findings": len(findings),
+            "truncated": truncated,
+            "ok_to_distribute": not findings,
+            "findings": findings,
         }

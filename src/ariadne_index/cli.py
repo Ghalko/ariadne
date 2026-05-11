@@ -275,6 +275,18 @@ def compact(
     typer.echo(json.dumps(payload, indent=2))
 
 
+@app.command("scan-db-secrets")
+def scan_db_secrets(
+    sample_limit: int = typer.Option(default=50, help="Maximum findings to return"),
+    database_url: str | None = typer.Option(default=None),
+) -> None:
+    with session_scope(database_url) as session:
+        payload = build_services(session)["maintenance"].scan_for_secrets(sample_limit=sample_limit)
+    typer.echo(json.dumps(payload, indent=2))
+    if not payload["ok_to_distribute"]:
+        raise typer.Exit(code=1)
+
+
 @memory_app.command("add")
 def add_memory(
     title: str,

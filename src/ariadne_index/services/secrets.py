@@ -16,12 +16,40 @@ SECRET_EXCLUDE_GLOBS = [
     "**/.aws/**",
     ".ssh/**",
     "**/.ssh/**",
-    "secrets.*",
-    "**/secrets.*",
-    "secret.*",
-    "**/secret.*",
-    "credentials.*",
-    "**/credentials.*",
+    "secrets",
+    "**/secrets",
+    "secrets.env",
+    "**/secrets.env",
+    "secrets.json",
+    "**/secrets.json",
+    "secrets.yaml",
+    "**/secrets.yaml",
+    "secrets.yml",
+    "**/secrets.yml",
+    "secrets.toml",
+    "**/secrets.toml",
+    "secret.env",
+    "**/secret.env",
+    "secret.json",
+    "**/secret.json",
+    "secret.yaml",
+    "**/secret.yaml",
+    "secret.yml",
+    "**/secret.yml",
+    "secret.toml",
+    "**/secret.toml",
+    "credentials",
+    "**/credentials",
+    "credentials.env",
+    "**/credentials.env",
+    "credentials.json",
+    "**/credentials.json",
+    "credentials.yaml",
+    "**/credentials.yaml",
+    "credentials.yml",
+    "**/credentials.yml",
+    "credentials.toml",
+    "**/credentials.toml",
     "*.pem",
     "**/*.pem",
     "*.key",
@@ -77,6 +105,12 @@ def redact_secrets(text: str | None) -> str | None:
     redacted = _SLACK_TOKEN_RE.sub("[REDACTED_SLACK_TOKEN]", redacted)
     redacted = _BEARER_TOKEN_RE.sub("Bearer [REDACTED_TOKEN]", redacted)
     return _SECRET_ASSIGNMENT_RE.sub(r"\1\2\3[REDACTED]\5", redacted)
+
+
+def contains_secret(text: str | None) -> bool:
+    if not text:
+        return False
+    return redact_secrets(text) != text
 
 
 def redact_secret_values(value: Any) -> Any:

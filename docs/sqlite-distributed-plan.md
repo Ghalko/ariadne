@@ -304,6 +304,37 @@ Behavior:
 
 Longer term, distributed memory should move through a mergeable export/import format. SQLite seed DBs can remain convenient runtime artifacts, but shared durable memory should not depend on merging binary DB files in git.
 
+## Committing SQLite Seed DBs
+
+SQLite files are binary artifacts. Git cannot merge active DB files meaningfully, but a curated seed DB can still be useful for distributing reviewed memory and a ready-to-query index.
+
+Do not commit arbitrary local DB files.
+
+Commit only seed DBs that pass a release-style preflight:
+
+```bash
+ariadne migrate-postgres-to-sqlite .ariadne/ariadne.db --overwrite
+ARIADNE_DATABASE_URL=sqlite+pysqlite:///.ariadne/ariadne.db ariadne compact --apply --keep-retrieval-logs 100
+ARIADNE_DATABASE_URL=sqlite+pysqlite:///.ariadne/ariadne.db ariadne doctor
+ARIADNE_DATABASE_URL=sqlite+pysqlite:///.ariadne/ariadne.db ariadne scan-db-secrets
+```
+
+The secret scan checks:
+
+- secret-shaped indexed file paths such as `.env`
+- unredacted values in text and JSON columns
+- embedding previews
+- retrieval log packed contexts and diagnostics
+
+If it reports findings, the DB is not distributable. Repair the source data, compact/reindex again, and rebuild the seed DB.
+
+Recommended git posture:
+
+- keep personal runtime DBs ignored
+- commit only deliberately named seed artifacts, for example `seed/ariadne.sqlite`
+- never rely on git to merge two edited SQLite DBs
+- regenerate seed DBs from mergeable memory/export data once UUID-backed memory export/import lands
+
 ## What Not To Do Yet
 
 - Do not rip out Alembic in one change.
@@ -325,6 +356,7 @@ The first practical slice should be:
 6. Extend `ariadne doctor` with secret-risk checks for indexed paths, excerpts, previews, logs, and `.gitignore`.
 7. Keep `ariadne migrate-postgres-to-sqlite` working as the bridge for existing dogfooding data.
 8. Keep `ariadne compact` working as the size-control path for distributed SQLite files.
-9. Update README to make SQLite the public contributor default.
+9. Require `ariadne scan-db-secrets` before committing curated SQLite seed DB artifacts.
+10. Update README to make SQLite the public contributor default.
 
 After that lands, add UUID columns as a separate migration and dual-write them during indexing/memory creation.

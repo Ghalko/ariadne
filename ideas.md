@@ -266,6 +266,18 @@ Design stance:
 - git should not be expected to merge active binary DB files
 - retrieval logs should be retained deliberately as evidence, not accumulated forever
 
+## SQLite Seed DB Preflight
+
+We should not commit arbitrary SQLite runtime DBs. A curated seed DB is acceptable only after preflight:
+
+- migrate from the trusted source DB
+- compact and vacuum
+- run `ariadne doctor`
+- run `ariadne scan-db-secrets`
+- commit under an intentional seed path, not as a personal runtime DB
+
+The scan checks secret-shaped file paths and unredacted secret-looking values in Ariadne text/JSON columns, embedding previews, and retrieval logs. This is not a substitute for mergeable memory export/import, but it gives us a safer bridge while DB files are being distributed.
+
 ## TurboQuant Takeaways
 
 Google's TurboQuant work is relevant to Ariadne, but mainly as a future optimization to the semantic retrieval layer, not as a reason to change the architecture.
