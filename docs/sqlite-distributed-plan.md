@@ -193,6 +193,35 @@ Later, `ariadne update --backup` can automate this.
 
 Do not design migrations around automatic destructive changes. Prefer additive migrations, backfills, and explicit cleanup commands.
 
+### Secrets and Local Data Safety
+
+SQLite makes Ariadne easier to run and easier to copy. That raises the bar for keeping secrets out of the index, embeddings, memories, retrieval logs, and packed context.
+
+Default posture:
+
+- exclude secret-shaped paths during indexing:
+  - `.env`, `.env.*`
+  - `.aws/**`, `.ssh/**`
+  - `secrets.*`, `secret.*`, `credentials.*`
+  - private key and certificate container extensions such as `.pem`, `.key`, `.p12`, `.pfx`
+- redact secret-shaped values before storing:
+  - support-file `content_excerpt`
+  - file and symbol summaries/docstrings/signatures
+  - embedding input and `content_preview`
+  - memory title/content/summary/metadata
+  - packed code snippets
+- keep `.ariadne/` and local DB files out of git by default
+- treat local DB export/import as an explicit user action, never a side effect of `doctor` or `update`
+
+`ariadne doctor` should eventually report:
+
+- whether secret-shaped paths are already indexed
+- whether stored excerpts/previews contain likely unredacted secrets
+- whether the repo `.gitignore` excludes `.ariadne/`
+- whether retrieval logs contain pre-redaction packed context from older versions
+
+`ariadne update` can later include a cleanup migration or maintenance command that prunes newly excluded secret files and rewrites stale excerpts/previews where feasible. It should still avoid deleting local data automatically without a clear plan and backup recommendation.
+
 ## What Not To Do Yet
 
 - Do not rip out Alembic in one change.
@@ -200,6 +229,7 @@ Do not design migrations around automatic destructive changes. Prefer additive m
 - Do not make SQLite pretend to have pgvector parity.
 - Do not make migration application automatic on every command.
 - Do not store large generated DBs in git by default.
+- Do not assume redaction is perfect; make secret scanning observable and conservative.
 
 ## Immediate Implementation Slice
 
@@ -210,6 +240,7 @@ The first practical slice should be:
 3. Port retrieval diagnostics to `migrations/0002_retrieval_diagnostics/sqlite.sql` and `postgres.sql`.
 4. Add `ariadne update --dry-run` and `ariadne update`.
 5. Extend `ariadne doctor` to report migration status.
-6. Update README to make SQLite the public contributor default.
+6. Extend `ariadne doctor` with secret-risk checks for indexed paths, excerpts, previews, logs, and `.gitignore`.
+7. Update README to make SQLite the public contributor default.
 
 After that lands, add UUID columns as a separate migration and dual-write them during indexing/memory creation.

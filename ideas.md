@@ -206,6 +206,26 @@ How that applies here:
 - benchmark on multiple repo shapes, not just one fixture
 - prefer transparent system behavior over magic
 
+## Public Repo and Secret Safety
+
+Moving Ariadne toward public GitHub and SQLite-first collaboration makes secret safety part of the core product surface.
+
+Current guardrails added on the SQLite branch:
+
+- default indexing excludes secret-shaped paths such as `.env`, `.aws/**`, `.ssh/**`, `secrets.*`, `credentials.*`, and private key files
+- support-file excerpts are redacted before storage
+- file/symbol summaries and docstrings are redacted before storage
+- embedding input and previews are redacted before persistence
+- durable memory payloads are redacted before storage
+- packed code snippets are redacted before they enter retrieval payloads/logs
+
+Next safety work:
+
+- add `ariadne doctor` checks for previously indexed secret-shaped paths
+- scan stored excerpts, embedding previews, memories, and retrieval logs for likely unredacted secrets
+- document that `.ariadne/` and local SQLite DB files must stay out of git
+- add an explicit cleanup/repair command for stale pre-redaction data after users back up their DB
+
 ## TurboQuant Takeaways
 
 Google's TurboQuant work is relevant to Ariadne, but mainly as a future optimization to the semantic retrieval layer, not as a reason to change the architecture.

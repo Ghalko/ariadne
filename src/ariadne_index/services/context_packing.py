@@ -5,6 +5,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from ariadne_index.models.entities import FileRecord, Memory, Repo, SymbolRecord
+from ariadne_index.services.secrets import redact_secrets
 
 
 class ContextPacker:
@@ -167,4 +168,4 @@ class ContextPacker:
         if not path.exists():
             return ""
         lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
-        return "\n".join(lines[line_start - 1 : line_end])
+        return redact_secrets("\n".join(lines[line_start - 1 : line_end])) or ""

@@ -6,6 +6,8 @@ from pathlib import Path
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from ariadne_index.services.secrets import SECRET_EXCLUDE_GLOBS
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ARIADNE_", env_file=".env", extra="ignore")
@@ -51,6 +53,7 @@ class Settings(BaseSettings):
             "**/__pycache__/**",
             ".pytest_cache/**",
             "**/.pytest_cache/**",
+            *SECRET_EXCLUDE_GLOBS,
         ]
     )
     workspace_root: Path = Field(default_factory=Path.cwd)

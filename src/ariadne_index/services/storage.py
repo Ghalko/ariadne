@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from ariadne_index.models.entities import Embedding
 from ariadne_index.services.embeddings import EmbeddingProvider
+from ariadne_index.services.secrets import redact_secrets
 
 
 def upsert_embedding(
@@ -16,7 +17,8 @@ def upsert_embedding(
     content: str,
     embedder: EmbeddingProvider,
 ) -> Embedding:
-    vector = embedder.embed(content)
+    safe_content = redact_secrets(content) or ""
+    vector = embedder.embed(safe_content)
     embedding = (
         session.query(Embedding)
         .filter(
@@ -35,7 +37,7 @@ def upsert_embedding(
             model_name=embedder.model_name,
             dimensions=embedder.dimensions,
             vector=vector,
-            content_preview=content[:250],
+            content_preview=safe_content[:250],
         )
         session.add(embedding)
     else:
@@ -43,6 +45,6 @@ def upsert_embedding(
         embedding.model_name = embedder.model_name
         embedding.dimensions = embedder.dimensions
         embedding.vector = vector
-        embedding.content_preview = content[:250]
+        embedding.content_preview = safe_content[:250]
     session.flush()
     return embedding

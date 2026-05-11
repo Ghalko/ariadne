@@ -42,6 +42,36 @@ def test_index_repo_excludes_recursive_virtualenv_and_pytest_cache_artifacts(db_
     assert not any(".venv" in path for path in indexed_paths)
 
 
+def test_index_repo_excludes_secret_files_and_redacts_support_file_excerpts(db_session, sample_repo: Path) -> None:
+    (sample_repo / ".env").write_text("OPENAI_API_KEY=sk-env-secret\n", encoding="utf-8")
+    (sample_repo / "config" / "secrets.toml").write_text('token = "ghp_secret12345678901234567890"\n', encoding="utf-8")
+    (sample_repo / "config" / "service.toml").write_text(
+        '[service]\nmodule = "app.service"\napi_key = "sk-config-secret"\npassword = "plain-password"\n',
+        encoding="utf-8",
+    )
+
+    services = build_services(db_session)
+    repo = services["repos"].add_repo(
+        RepoCreate(
+            name="sample",
+            local_path=str(sample_repo),
+            include_globs=[*get_settings().default_include_globs, ".env"],
+        )
+    )
+    result = services["indexing"].index_repo(repo)
+
+    indexed_paths = {file.path for file in db_session.query(FileRecord).filter_by(repo_id=repo.id).all()}
+    service_config = db_session.query(FileRecord).filter_by(repo_id=repo.id, path="config/service.toml").one()
+    excerpt = service_config.metadata_json["content_excerpt"]
+
+    assert result["discovered"] == 7
+    assert ".env" not in indexed_paths
+    assert "config/secrets.toml" not in indexed_paths
+    assert "sk-config-secret" not in excerpt
+    assert "plain-password" not in excerpt
+    assert "[REDACTED]" in excerpt
+
+
 def test_index_repo_prunes_nested_registered_repo_files_on_reindex(db_session, tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -117,6 +147,30 @@ def test_retrieve_includes_memory_context(db_session, sample_repo) -> None:
     assert payload["context"]["symbols"]
     assert any(item["title"] == "Retry budget stays capped" for item in payload["context"]["memories"])
     assert any(snippet["symbol"] == "retry_logic" for snippet in payload["context"]["snippets"])
+
+
+def test_memory_creation_redacts_secret_payloads_and_embedding_preview(db_session, sample_repo) -> None:
+    services = build_services(db_session)
+    repo = services["repos"].add_repo(RepoCreate(name="sample", local_path=str(sample_repo)))
+
+    memory = services["memory"].create_memory(
+        MemoryCreate(
+            repo_id=repo.id,
+            title="GitHub token ghp_secret12345678901234567890",
+            content="Use token = ghp_secret12345678901234567890 for local testing.",
+            summary="password=super-secret",
+            memory_type="decision",
+            metadata_json={"api_key": "sk-memory-secret"},
+        )
+    )
+    embedding = db_session.query(Embedding).filter_by(node_kind="memory", node_id=memory.id).one()
+
+    assert "ghp_secret" not in memory.title
+    assert "ghp_secret" not in memory.content
+    assert "super-secret" not in (memory.summary or "")
+    assert memory.metadata_json["api_key"] == "[REDACTED]"
+    assert "super-secret" not in (embedding.content_preview or "")
+    assert "[REDACTED]" in (memory.summary or "")
 
 
 def test_indexing_creates_test_coverage_edges(db_session, sample_repo) -> None:
