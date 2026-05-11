@@ -288,6 +288,32 @@ What this should drive in Ariadne:
 
 Ariadne should treat storage as a deployment mode decision, not as ideology.
 
+### SQLite-first public contributor mode
+
+After moving Ariadne to public GitHub, the public contributor story should shift toward SQLite earlier.
+
+Why:
+
+- lower setup friction
+- easier public collaboration across time and location
+- no local Postgres requirement for docs, parser, benchmark, MCP, or retrieval work
+- easier local backups before schema updates
+- better fit for sidecar/dogfooding use
+
+This does not remove Postgres. Postgres remains the stronger shared/team backend, especially for `pgvector`, concurrent writers, and managed deployments.
+
+The detailed plan is in `docs/sqlite-distributed-plan.md`.
+
+Key direction:
+
+- introduce raw SQL migrations with an `ariadne_schema_migrations` tracking table
+- expose read-only migration status through `ariadne doctor`
+- expose mutation through `ariadne update`
+- keep migration application explicit, not automatic
+- move toward dual integer/UUID identities before any distributed import/export story
+- avoid big Alembic-style merge conflicts by using timestamped migration folders and SQL files
+- add UUID public IDs incrementally rather than replacing all integer primary keys at once
+
 ### SQLite mode
 
 Best fit:
