@@ -2,6 +2,14 @@
 
 A local-first repository index for AI coding workflows backed by Postgres, `pgvector`, and an explicit graph model.
 
+## Research Motivation
+
+Coding agents often spend substantial context budget rediscovering repository structure: searching for files, reading nearby tests, finding docs and config, and recovering prior decisions. Ariadne treats context retrieval as an explicit planning and indexing problem rather than a series of ad hoc file reads.
+
+The goal is to measure whether graph-backed retrieval, embeddings, durable memory, and compact context packing can reduce redundant tool calls and token usage while preserving or improving task success.
+
+Current evidence and known failures are summarized in [docs/evidence-report.md](docs/evidence-report.md). The short version: internal fixture retrieval is functional, MCP dogfooding works, and the first public ContextBench smoke showed Ariadne was compact but missed the gold context. That failure is now part of the benchmark record rather than hidden.
+
 ## MVP Scope
 
 - Register and index one or more repositories

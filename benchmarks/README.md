@@ -2,6 +2,8 @@
 
 This folder contains labeled benchmark data for Ariadne.
 
+For a narrative summary of current results and limitations, see `docs/evidence-report.md`.
+
 ## Layout
 
 - `queries.json`: labeled retrieval tasks for `spinner`

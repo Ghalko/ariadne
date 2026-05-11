@@ -60,6 +60,115 @@ Most remaining misses are now:
 
 That means the current bottleneck has shifted from broad candidate generation to ranking, support-artifact preservation, and targeted symbol generation.
 
+## External Feedback - Evaluation and Differentiation
+
+Recent outside feedback was blunt and useful:
+
+- the idea is strong
+- the implementation is not differentiated enough yet
+- the evaluation layer is still too thin
+- token reduction is not persuasive unless paired with task success or gold-context recall
+
+The highest-leverage additions are:
+
+### 1. Minimal agent eval harness
+
+Pick 5-10 realistic coding tasks and compare:
+
+- baseline agent with normal tools or simple retrieval
+- Ariadne-backed agent
+
+Example tasks:
+
+- add logging across a module
+- refactor a function used in several files
+- fix a bug from an issue description
+- update config-driven behavior plus tests
+- add documentation/runbook coverage for a behavior change
+
+Track:
+
+- tokens used
+- tool calls
+- success rate
+- time to completion
+- retrieval/context misses
+
+Even rough numbers are more convincing than architecture claims.
+
+### 2. Retrieval policy layer
+
+Ariadne should move from "query then retrieve" toward task-aware retrieval planning.
+
+Examples:
+
+- refactor task: prioritize dependency graph, callers, tests, and interface boundaries
+- bugfix task: prioritize issue/error terms, failing tests, recent related changes, and suspicious code paths
+- feature task: prioritize docs, interfaces, config, examples, and nearby tests
+- docs task: prioritize docs, ADRs, configs, and public APIs
+
+This is where Ariadne becomes architecture rather than plumbing: retrieval should be planned around the task type and evidence needs.
+
+### 3. Memory that matters
+
+Most memory systems become noise. Ariadne memory should be:
+
+- tied to successful trajectories or reviewed decisions
+- scoped to repo, subsystem, task type, and validity window
+- reweighted or decayed over time
+- explicit about provenance and confidence
+- suppressed when it repeatedly fails to help retrieval or task success
+
+Memory should not be a general note dump. It should be evidence-backed retrieval prior.
+
+### Positioning paragraph
+
+Ariadne is an experimental information architecture for coding agents that unifies structural, semantic, temporal, and experiential context into a single retrieval system. Instead of relying on repeated file reads and shallow search, agents operate over a graph-backed representation of the repository enriched with embeddings, commit history, and prior successful trajectories. The goal is to reduce token usage, stabilize tool behavior, and improve task completion by turning context retrieval into a planning problem rather than a lookup problem.
+
+### Implication
+
+The next work should not be another broad feature pass. It should be:
+
+1. make public and local evals sharper
+2. add a minimal agent-task harness
+3. add retrieval policy planning on top of existing retrieval modes
+4. make memory success-scoped and measurable
+
+## Corrected External Read
+
+A corrected outside read acknowledged that the previous critique overstated the gap because it was made before inspecting the repo.
+
+Corrected assessment:
+
+- Ariadne is farther along than assumed.
+- This is not only a concept.
+- The repo already has the right primitives:
+  - explicit repo graph
+  - vector retrieval
+  - durable memory
+  - retrieval logs and traces
+  - context packing
+  - MCP tooling
+  - benchmark and docs folders
+  - dogfooding hooks
+
+The advice still holds, but the emphasis changes.
+
+The application-facing gap is not primarily architecture. It is evidence.
+
+For an Anthropic-style audience, the strongest next layer is:
+
+> Here are task traces showing Ariadne reduces redundant tool calls, lowers token usage, and improves success on hard repo tasks compared with baseline agent workflows.
+
+The highest-signal artifacts to add next:
+
+- a small benchmark report: started in `docs/evidence-report.md`
+- concrete trace examples
+- a clean architecture diagram: started in `docs/evidence-report.md`
+- a README section such as `Research Motivation` or `Agent Context Failure Modes`: started in `README.md`
+
+This should steer the next work toward evidence packaging and task traces, not more primitives for their own sake.
+
 ## Direction Check
 
 The recent Claude Code source leak is a useful reminder that the value in systems like this is not hidden orchestration tricks.
