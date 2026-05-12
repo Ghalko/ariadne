@@ -7,6 +7,8 @@ from ariadne_index.models.enums import EdgeType
 from ariadne_index.schemas import MemoryCreate, MemoryLinkCreate
 from ariadne_index.services.embeddings import EmbeddingProvider
 from ariadne_index.services.graph import GraphService
+from ariadne_index.services.identity import random_uuid
+from ariadne_index.services.secrets import redact_secret_values
 from ariadne_index.services.storage import upsert_embedding
 
 
@@ -17,7 +19,7 @@ class MemoryService:
         self.graph = GraphService(session)
 
     def create_memory(self, payload: MemoryCreate) -> Memory:
-        memory = Memory(**payload.model_dump())
+        memory = Memory(uuid=random_uuid(), **redact_secret_values(payload.model_dump()))
         self.session.add(memory)
         self.session.flush()
         upsert_embedding(

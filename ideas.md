@@ -206,6 +206,104 @@ How that applies here:
 - benchmark on multiple repo shapes, not just one fixture
 - prefer transparent system behavior over magic
 
+## Public Repo and Secret Safety
+
+Moving Ariadne toward public GitHub and SQLite-first collaboration makes secret safety part of the core product surface.
+
+Current guardrails added on the SQLite branch:
+
+- default indexing excludes secret-shaped paths such as `.env`, `.aws/**`, `.ssh/**`, `secrets.*`, `credentials.*`, and private key files
+- support-file excerpts are redacted before storage
+- file/symbol summaries and docstrings are redacted before storage
+- embedding input and previews are redacted before persistence
+- durable memory payloads are redacted before storage
+- packed code snippets are redacted before they enter retrieval payloads/logs
+
+Next safety work:
+
+- add `ariadne doctor` checks for previously indexed secret-shaped paths
+- scan stored excerpts, embedding previews, memories, and retrieval logs for likely unredacted secrets
+- document that `.ariadne/` and local SQLite DB files must stay out of git
+- add an explicit cleanup/repair command for stale pre-redaction data after users back up their DB
+
+## Postgres to SQLite Bridge
+
+The SQLite branch now needs to preserve dogfooding continuity: existing Ariadne Postgres data should move into a local SQLite file without losing graph coherence.
+
+Initial bridge:
+
+- `ariadne migrate-postgres-to-sqlite .ariadne/ariadne.db`
+- source defaults to `ARIADNE_DATABASE_URL`
+- copies only Ariadne tables, not an arbitrary Postgres database
+- preserves integer IDs so edges, embeddings, memories, and retrieval logs remain connected
+- converts pgvector values into SQLite JSON arrays
+- refuses to overwrite the target DB unless `--overwrite` is explicit
+
+Future additions:
+
+- dry-run row counts before copy
+- optional `--repo-name` filtering
+- secret-risk scan before migration
+- post-migration `doctor` guidance for `.ariadne/` gitignore and stale pre-redaction data
+
+## SQLite Size Control
+
+If SQLite DBs are distributed as seed artifacts, Ariadne needs a consolidation path so DBs do not grow absurdly larger than the repo.
+
+Initial compact behavior:
+
+- `ariadne compact` is dry-run by default
+- `ariadne compact --apply --keep-retrieval-logs 100` prunes old retrieval logs
+- orphaned edges and embeddings are removed
+- `--reindex` refreshes rebuildable repo-derived data before pruning
+- SQLite `VACUUM` runs after applied cleanup
+- durable memories are preserved
+
+Design stance:
+
+- memory should become mergeable data with UUIDs and export/import
+- SQLite DB files can be distributed as convenient snapshots or release artifacts
+- git should not be expected to merge active binary DB files
+- retrieval logs should be retained deliberately as evidence, not accumulated forever
+
+## SQLite Seed DB Preflight
+
+We should not commit arbitrary SQLite runtime DBs. A curated seed DB is acceptable only after preflight:
+
+- migrate from the trusted source DB
+- compact and vacuum
+- run `ariadne doctor`
+- run `ariadne scan-db-secrets`
+- commit under an intentional seed path, not as a personal runtime DB
+
+The scan checks secret-shaped file paths and unredacted secret-looking values in Ariadne text/JSON columns, embedding previews, and retrieval logs. This is not a substitute for mergeable memory export/import, but it gives us a safer bridge while DB files are being distributed.
+
+## Branch DB Merge Bridge
+
+Branch-specific SQLite DB files let Codex dogfood Ariadne against SQLite while preserving branch-local memory.
+
+Workflow:
+
+- copy `seed/ariadne.sqlite` to `seed/branches/<branch>.sqlite`
+- point Codex MCP at that branch DB
+- allow live memory/retrieval updates during branch work
+- before merge, run `ariadne sqlite merge branch.sqlite target.sqlite`
+- apply only after reviewing the dry-run counts/conflicts
+
+The first merge bridge maps rows by UUIDs when present, falls back to existing natural keys, and skips retrieval logs unless explicit. This is acceptable only as a bridge. The real distributed model still wants UUID-backed memory export/import.
+
+## UUID Identity Slice
+
+The branch DB merge now has UUID identity support:
+
+- UUID columns exist for repos, files, symbols, memories, edges, embeddings, and retrieval logs
+- edge endpoint UUIDs and embedding node UUIDs are stored alongside integer IDs
+- new writes dual-write UUIDs
+- `ariadne backfill-uuids` upgrades existing DBs
+- SQLite merge prefers UUIDs before natural keys
+
+This specifically addresses the two-developer case where separate branch DBs create different rows with the same local integer IDs.
+
 ## TurboQuant Takeaways
 
 Google's TurboQuant work is relevant to Ariadne, but mainly as a future optimization to the semantic retrieval layer, not as a reason to change the architecture.
@@ -287,6 +385,32 @@ What this should drive in Ariadne:
 ## Storage Modes
 
 Ariadne should treat storage as a deployment mode decision, not as ideology.
+
+### SQLite-first public contributor mode
+
+After moving Ariadne to public GitHub, the public contributor story should shift toward SQLite earlier.
+
+Why:
+
+- lower setup friction
+- easier public collaboration across time and location
+- no local Postgres requirement for docs, parser, benchmark, MCP, or retrieval work
+- easier local backups before schema updates
+- better fit for sidecar/dogfooding use
+
+This does not remove Postgres. Postgres remains the stronger shared/team backend, especially for `pgvector`, concurrent writers, and managed deployments.
+
+The detailed plan is in `docs/sqlite-distributed-plan.md`.
+
+Key direction:
+
+- introduce raw SQL migrations with an `ariadne_schema_migrations` tracking table
+- expose read-only migration status through `ariadne doctor`
+- expose mutation through `ariadne update`
+- keep migration application explicit, not automatic
+- move toward dual integer/UUID identities before any distributed import/export story
+- avoid big Alembic-style merge conflicts by using timestamped migration folders and SQL files
+- add UUID public IDs incrementally rather than replacing all integer primary keys at once
 
 ### SQLite mode
 

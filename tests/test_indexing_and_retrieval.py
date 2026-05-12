@@ -7,8 +7,8 @@ import pytest
 from ariadne_index import bootstrap
 from ariadne_index.config import get_settings
 from ariadne_index.bootstrap import build_services
-from ariadne_index.models.entities import Edge, Embedding, FileRecord, RetrievalLog
-from ariadne_index.models.enums import EdgeType
+from ariadne_index.models.entities import Edge, Embedding, FileRecord, Memory, RetrievalLog
+from ariadne_index.models.enums import EdgeType, MemoryType
 from ariadne_index.schemas import MemoryCreate, MemoryLinkCreate, RepoCreate
 
 
@@ -40,6 +40,36 @@ def test_index_repo_excludes_recursive_virtualenv_and_pytest_cache_artifacts(db_
     assert result["discovered"] == 6
     assert not any(".pytest_cache" in path for path in indexed_paths)
     assert not any(".venv" in path for path in indexed_paths)
+
+
+def test_index_repo_excludes_secret_files_and_redacts_support_file_excerpts(db_session, sample_repo: Path) -> None:
+    (sample_repo / ".env").write_text("OPENAI_API_KEY=sk-env-secret\n", encoding="utf-8")
+    (sample_repo / "config" / "secrets.toml").write_text('token = "ghp_secret12345678901234567890"\n', encoding="utf-8")
+    (sample_repo / "config" / "service.toml").write_text(
+        '[service]\nmodule = "app.service"\napi_key = "sk-config-secret"\npassword = "plain-password"\n',
+        encoding="utf-8",
+    )
+
+    services = build_services(db_session)
+    repo = services["repos"].add_repo(
+        RepoCreate(
+            name="sample",
+            local_path=str(sample_repo),
+            include_globs=[*get_settings().default_include_globs, ".env"],
+        )
+    )
+    result = services["indexing"].index_repo(repo)
+
+    indexed_paths = {file.path for file in db_session.query(FileRecord).filter_by(repo_id=repo.id).all()}
+    service_config = db_session.query(FileRecord).filter_by(repo_id=repo.id, path="config/service.toml").one()
+    excerpt = service_config.metadata_json["content_excerpt"]
+
+    assert result["discovered"] == 7
+    assert ".env" not in indexed_paths
+    assert "config/secrets.toml" not in indexed_paths
+    assert "sk-config-secret" not in excerpt
+    assert "plain-password" not in excerpt
+    assert "[REDACTED]" in excerpt
 
 
 def test_index_repo_prunes_nested_registered_repo_files_on_reindex(db_session, tmp_path: Path) -> None:
@@ -117,6 +147,30 @@ def test_retrieve_includes_memory_context(db_session, sample_repo) -> None:
     assert payload["context"]["symbols"]
     assert any(item["title"] == "Retry budget stays capped" for item in payload["context"]["memories"])
     assert any(snippet["symbol"] == "retry_logic" for snippet in payload["context"]["snippets"])
+
+
+def test_memory_creation_redacts_secret_payloads_and_embedding_preview(db_session, sample_repo) -> None:
+    services = build_services(db_session)
+    repo = services["repos"].add_repo(RepoCreate(name="sample", local_path=str(sample_repo)))
+
+    memory = services["memory"].create_memory(
+        MemoryCreate(
+            repo_id=repo.id,
+            title="GitHub token ghp_secret12345678901234567890",
+            content="Use token = ghp_secret12345678901234567890 for local testing.",
+            summary="password=super-secret",
+            memory_type="decision",
+            metadata_json={"api_key": "sk-memory-secret"},
+        )
+    )
+    embedding = db_session.query(Embedding).filter_by(node_kind="memory", node_id=memory.id).one()
+
+    assert "ghp_secret" not in memory.title
+    assert "ghp_secret" not in memory.content
+    assert "super-secret" not in (memory.summary or "")
+    assert memory.metadata_json["api_key"] == "[REDACTED]"
+    assert "super-secret" not in (embedding.content_preview or "")
+    assert "[REDACTED]" in (memory.summary or "")
 
 
 def test_indexing_creates_test_coverage_edges(db_session, sample_repo) -> None:
@@ -208,3 +262,64 @@ def test_reconcile_embeddings_rebuilds_file_symbol_and_memory_embeddings(db_sess
     assert result["repos_reindexed"] == 1
     assert result["memory_embeddings_rebuilt"] == 1
     assert after > 0
+
+
+def test_compact_database_prunes_old_retrieval_logs_without_touching_memory(db_session, sample_repo) -> None:
+    services = build_services(db_session)
+    repo = services["repos"].add_repo(RepoCreate(name="sample", local_path=str(sample_repo)))
+    services["indexing"].index_repo(repo)
+    memory = services["memory"].create_memory(
+        MemoryCreate(
+            repo_id=repo.id,
+            title="Keep this memory",
+            content="Durable memory must survive compaction.",
+            summary="Durable compaction memory",
+            memory_type="decision",
+        )
+    )
+
+    for index in range(5):
+        services["retrieval"].retrieve(
+            query=f"retry logic compaction check {index}",
+            mode="understand",
+            repo=repo,
+            include_code=False,
+        )
+
+    dry_run = services["maintenance"].compact_database(keep_retrieval_logs=2, dry_run=True)
+    assert dry_run["would_delete"]["retrieval_logs"] == 3
+    assert dry_run["deleted"]["retrieval_logs"] == 0
+    assert db_session.query(RetrievalLog).count() == 5
+
+    applied = services["maintenance"].compact_database(keep_retrieval_logs=2, dry_run=False)
+
+    assert applied["deleted"]["retrieval_logs"] == 3
+    assert db_session.query(RetrievalLog).count() == 2
+    assert services["memory"].list_memories(repo.id)[0].id == memory.id
+
+
+def test_scan_for_secrets_flags_unredacted_db_values(db_session, sample_repo) -> None:
+    services = build_services(db_session)
+    repo = services["repos"].add_repo(RepoCreate(name="sample", local_path=str(sample_repo)))
+    leaked_memory = Memory(
+        repo_id=repo.id,
+        title="Leaked credential",
+        content="api_key=sk-raw-db-secret",
+        summary="Unredacted direct insert",
+        memory_type=MemoryType.decision,
+    )
+    secret_file = FileRecord(
+        repo_id=repo.id,
+        path=".env",
+        checksum="test",
+        summary="Secret path should not be distributable.",
+    )
+    db_session.add_all([leaked_memory, secret_file])
+    db_session.flush()
+
+    result = services["maintenance"].scan_for_secrets()
+
+    assert result["ok_to_distribute"] is False
+    assert result["secret_findings"] >= 2
+    assert any(finding["kind"] == "secret_path" for finding in result["findings"])
+    assert any(finding["table"] == "memories" and finding["column"] == "content" for finding in result["findings"])

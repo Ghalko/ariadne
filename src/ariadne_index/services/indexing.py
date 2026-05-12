@@ -13,7 +13,9 @@ from ariadne_index.parsers.registry import ParserRegistry
 from ariadne_index.services.embeddings import EmbeddingProvider
 from ariadne_index.services.filesystem import discover_files, sha256_text
 from ariadne_index.services.graph import GraphService
+from ariadne_index.services.identity import file_uuid, symbol_uuid
 from ariadne_index.services.repository import RepoService
+from ariadne_index.services.secrets import SECRET_EXCLUDE_GLOBS, looks_like_secret_path, redact_secrets
 from ariadne_index.services.storage import upsert_embedding
 
 
@@ -71,6 +73,7 @@ class IndexingService:
 
     def _discover_repo_files(self, repo: Repo, root: Path) -> list[Path]:
         files = discover_files(root, repo.include_globs, self._effective_exclude_globs(repo))
+        files = [path for path in files if not looks_like_secret_path(path.relative_to(root).as_posix())]
         nested_prefixes = self._nested_repo_relative_prefixes(repo, root)
         if not nested_prefixes:
             return files
@@ -90,6 +93,7 @@ class IndexingService:
             "**/build/**",
             "**/__pycache__/**",
             "**/.pytest_cache/**",
+            *SECRET_EXCLUDE_GLOBS,
         ]
         combined = [*repo.exclude_globs, *self.settings.default_exclude_globs, *recursive_artifact_excludes]
         return list(dict.fromkeys(combined))
@@ -142,15 +146,17 @@ class IndexingService:
             file_record = FileRecord(repo_id=repo.id, path=relative_path, checksum=checksum)
             self.session.add(file_record)
 
+        if not file_record.uuid:
+            file_record.uuid = file_uuid(repo.uuid or str(repo.id), relative_path)
         file_record.language = parsed.language
         file_record.checksum = checksum
         file_record.commit_sha = repo.current_commit_sha
-        file_record.summary = parsed.summary
+        file_record.summary = redact_secrets(parsed.summary)
         file_record.imports = parsed.imports
         file_record.tags = parsed.tags
         metadata = {"parser": parsed.language.value}
         if parsed.language.value in {"markdown", "json", "yaml", "toml"}:
-            metadata["content_excerpt"] = content[:4000]
+            metadata["content_excerpt"] = (redact_secrets(content) or "")[:4000]
         file_record.metadata_json = metadata
         self.session.flush()
         return file_record
@@ -168,7 +174,15 @@ class IndexingService:
 
         symbols_by_name: dict[str, SymbolRecord] = {}
         for parsed_symbol in parsed.symbols:
+            public_id = symbol_uuid(
+                file_record.uuid or str(file_record.id),
+                parsed_symbol.qualified_name,
+                parsed_symbol.name,
+                parsed_symbol.line_start,
+                parsed_symbol.line_end,
+            )
             symbol = SymbolRecord(
+                uuid=public_id,
                 repo_id=repo.id,
                 file_id=file_record.id,
                 name=parsed_symbol.name,
@@ -177,9 +191,9 @@ class IndexingService:
                 language=parsed.language,
                 line_start=parsed_symbol.line_start,
                 line_end=parsed_symbol.line_end,
-                signature=parsed_symbol.signature,
-                docstring=parsed_symbol.docstring,
-                summary=parsed_symbol.summary,
+                signature=redact_secrets(parsed_symbol.signature),
+                docstring=redact_secrets(parsed_symbol.docstring),
+                summary=redact_secrets(parsed_symbol.summary),
                 metadata_json={},
             )
             self.session.add(symbol)

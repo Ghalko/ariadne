@@ -7,13 +7,23 @@ import typer
 
 from ariadne_index.bootstrap import build_services
 from ariadne_index.config import get_settings
-from ariadne_index.db import database_diagnostics, init_database, session_scope
+from ariadne_index.db import build_engine, database_diagnostics, init_database, session_scope
 from ariadne_index.models.entities import RetrievalLog
 from ariadne_index.schemas import MemoryCreate, MemoryLinkCreate, RepoCreate
+from ariadne_index.services.db_migration import (
+    branch_sqlite_path,
+    current_git_branch,
+    init_branch_sqlite,
+    merge_sqlite_databases,
+    migrate_to_sqlite,
+)
+from ariadne_index.services.uuid_backfill import backfill_uuids
 
 app = typer.Typer(help="Repo indexing, graph retrieval, and durable memory.")
 memory_app = typer.Typer(help="Memory CRUD commands.")
+sqlite_app = typer.Typer(help="SQLite seed and branch database commands.")
 app.add_typer(memory_app, name="memory")
+app.add_typer(sqlite_app, name="sqlite")
 
 
 @app.command()
@@ -210,6 +220,28 @@ def doctor(database_url: str | None = typer.Option(default=None)) -> None:
     typer.echo(json.dumps(diagnostics, indent=2))
 
 
+@app.command("migrate-postgres-to-sqlite")
+def migrate_postgres_to_sqlite(
+    target_path: Path = typer.Argument(..., help="SQLite DB file to create"),
+    source_database_url: str | None = typer.Option(
+        default=None,
+        help="Source Postgres URL. Defaults to ARIADNE_DATABASE_URL.",
+    ),
+    overwrite: bool = typer.Option(default=False, help="Replace target_path if it already exists"),
+) -> None:
+    source_url = source_database_url or get_settings().database_url
+    if source_url.startswith("sqlite"):
+        typer.echo("source database must be Postgres; pass --source-database-url explicitly", err=True)
+        raise typer.Exit(code=2)
+
+    payload = migrate_to_sqlite(
+        source_database_url=source_url,
+        target_path=target_path,
+        overwrite=overwrite,
+    )
+    typer.echo(json.dumps(payload, indent=2))
+
+
 @app.command("reconcile-embeddings")
 def reconcile_embeddings(
     target_dimensions: int | None = typer.Option(default=None),
@@ -221,6 +253,99 @@ def reconcile_embeddings(
             target_dimensions=target_dimensions or get_settings().embedding_dimensions
         )
         typer.echo(json.dumps(payload, indent=2))
+
+
+@app.command()
+def compact(
+    keep_retrieval_logs: int = typer.Option(default=100, help="Number of newest retrieval logs to keep"),
+    reindex: bool = typer.Option(default=False, help="Reindex repos before pruning orphaned rows"),
+    apply: bool = typer.Option(default=False, help="Apply changes. Without this, compact is a dry run"),
+    vacuum: bool = typer.Option(default=True, help="Run SQLite VACUUM after applying changes"),
+    database_url: str | None = typer.Option(default=None),
+) -> None:
+    with session_scope(database_url) as session:
+        services = build_services(session)
+        payload = services["maintenance"].compact_database(
+            keep_retrieval_logs=keep_retrieval_logs,
+            reindex=reindex,
+            dry_run=not apply,
+        )
+
+    payload["vacuum"] = {"requested": vacuum, "ran": False}
+    if apply and vacuum:
+        engine = build_engine(database_url)
+        if engine.dialect.name == "sqlite":
+            with engine.connect() as connection:
+                connection.exec_driver_sql("VACUUM")
+            payload["vacuum"]["ran"] = True
+        else:
+            payload["vacuum"]["skipped"] = "VACUUM is only run automatically for SQLite"
+
+    typer.echo(json.dumps(payload, indent=2))
+
+
+@app.command("scan-db-secrets")
+def scan_db_secrets(
+    sample_limit: int = typer.Option(default=50, help="Maximum findings to return"),
+    database_url: str | None = typer.Option(default=None),
+) -> None:
+    with session_scope(database_url) as session:
+        payload = build_services(session)["maintenance"].scan_for_secrets(sample_limit=sample_limit)
+    typer.echo(json.dumps(payload, indent=2))
+    if not payload["ok_to_distribute"]:
+        raise typer.Exit(code=1)
+
+
+@app.command("backfill-uuids")
+def backfill_uuid_columns(database_url: str | None = typer.Option(default=None)) -> None:
+    with session_scope(database_url) as session:
+        payload = backfill_uuids(session)
+    typer.echo(json.dumps({"backfilled": payload}, indent=2))
+
+
+@sqlite_app.command("branch-path")
+def sqlite_branch_path(
+    branch: str | None = typer.Option(default=None, help="Branch name. Defaults to current git branch"),
+    target_dir: Path = typer.Option(default=Path("seed/branches"), help="Directory for branch DB files"),
+) -> None:
+    branch_name = branch or current_git_branch(cwd=Path.cwd())
+    path = branch_sqlite_path(branch_name, target_dir=target_dir)
+    typer.echo(json.dumps({"branch": branch_name, "path": str(path), "database_url": f"sqlite+pysqlite:///{path}"}, indent=2))
+
+
+@sqlite_app.command("init-branch")
+def sqlite_init_branch(
+    branch: str | None = typer.Option(default=None, help="Branch name. Defaults to current git branch"),
+    source_path: Path = typer.Option(default=Path("seed/ariadne.sqlite"), help="Seed DB to copy from"),
+    target_dir: Path = typer.Option(default=Path("seed/branches"), help="Directory for branch DB files"),
+    overwrite: bool = typer.Option(default=False, help="Replace the branch DB if it already exists"),
+) -> None:
+    branch_name = branch or current_git_branch(cwd=Path.cwd())
+    payload = init_branch_sqlite(
+        branch=branch_name,
+        source_path=source_path,
+        target_dir=target_dir,
+        overwrite=overwrite,
+    )
+    typer.echo(json.dumps(payload, indent=2))
+
+
+@sqlite_app.command("merge")
+def sqlite_merge(
+    source_path: Path = typer.Argument(..., help="Branch SQLite DB to merge from"),
+    target_path: Path = typer.Argument(..., help="SQLite DB to merge into"),
+    include_retrieval_logs: bool = typer.Option(default=False, help="Also merge retrieval logs"),
+    apply: bool = typer.Option(default=False, help="Apply merge. Without this, merge is a dry run"),
+) -> None:
+    payload = merge_sqlite_databases(
+        source_path=source_path,
+        target_path=target_path,
+        include_retrieval_logs=include_retrieval_logs,
+        dry_run=not apply,
+    )
+    typer.echo(json.dumps(payload, indent=2))
+    if payload["conflicts"]:
+        raise typer.Exit(code=1)
 
 
 @memory_app.command("add")
