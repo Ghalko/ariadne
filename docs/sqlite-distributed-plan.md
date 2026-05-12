@@ -335,6 +335,40 @@ Recommended git posture:
 - never rely on git to merge two edited SQLite DBs
 - regenerate seed DBs from mergeable memory/export data once UUID-backed memory export/import lands
 
+## Branch-Named SQLite DBs
+
+For live branch work, use branch-specific DB copies instead of editing the shared seed directly:
+
+```bash
+ariadne sqlite init-branch
+ariadne sqlite branch-path
+```
+
+Example:
+
+```text
+seed/branches/sqlite.sqlite
+```
+
+Codex can point MCP at the branch DB during active work. That lets the agent update local memory and retrieval logs without mutating the baseline seed artifact on every tool call.
+
+When a branch is ready to merge, merge the branch DB into the target DB through Ariadne:
+
+```bash
+ariadne sqlite merge seed/branches/my-feature.sqlite seed/ariadne.sqlite
+ariadne sqlite merge seed/branches/my-feature.sqlite seed/ariadne.sqlite --apply
+```
+
+This is a moderated merge:
+
+- dry-run by default
+- maps rows by Ariadne natural keys
+- preserves branch-added memories, graph edges, files, symbols, and embeddings
+- skips retrieval logs unless `--include-retrieval-logs` is explicit
+- reports repo identity conflicts instead of asking git to merge binary blobs
+
+This does not replace the need for UUID public IDs. It is a practical bridge that works best when branch DBs are copied from the same seed.
+
 ## What Not To Do Yet
 
 - Do not rip out Alembic in one change.

@@ -10,11 +10,19 @@ from ariadne_index.config import get_settings
 from ariadne_index.db import build_engine, database_diagnostics, init_database, session_scope
 from ariadne_index.models.entities import RetrievalLog
 from ariadne_index.schemas import MemoryCreate, MemoryLinkCreate, RepoCreate
-from ariadne_index.services.db_migration import migrate_to_sqlite
+from ariadne_index.services.db_migration import (
+    branch_sqlite_path,
+    current_git_branch,
+    init_branch_sqlite,
+    merge_sqlite_databases,
+    migrate_to_sqlite,
+)
 
 app = typer.Typer(help="Repo indexing, graph retrieval, and durable memory.")
 memory_app = typer.Typer(help="Memory CRUD commands.")
+sqlite_app = typer.Typer(help="SQLite seed and branch database commands.")
 app.add_typer(memory_app, name="memory")
+app.add_typer(sqlite_app, name="sqlite")
 
 
 @app.command()
@@ -284,6 +292,51 @@ def scan_db_secrets(
         payload = build_services(session)["maintenance"].scan_for_secrets(sample_limit=sample_limit)
     typer.echo(json.dumps(payload, indent=2))
     if not payload["ok_to_distribute"]:
+        raise typer.Exit(code=1)
+
+
+@sqlite_app.command("branch-path")
+def sqlite_branch_path(
+    branch: str | None = typer.Option(default=None, help="Branch name. Defaults to current git branch"),
+    target_dir: Path = typer.Option(default=Path("seed/branches"), help="Directory for branch DB files"),
+) -> None:
+    branch_name = branch or current_git_branch(cwd=Path.cwd())
+    path = branch_sqlite_path(branch_name, target_dir=target_dir)
+    typer.echo(json.dumps({"branch": branch_name, "path": str(path), "database_url": f"sqlite+pysqlite:///{path}"}, indent=2))
+
+
+@sqlite_app.command("init-branch")
+def sqlite_init_branch(
+    branch: str | None = typer.Option(default=None, help="Branch name. Defaults to current git branch"),
+    source_path: Path = typer.Option(default=Path("seed/ariadne.sqlite"), help="Seed DB to copy from"),
+    target_dir: Path = typer.Option(default=Path("seed/branches"), help="Directory for branch DB files"),
+    overwrite: bool = typer.Option(default=False, help="Replace the branch DB if it already exists"),
+) -> None:
+    branch_name = branch or current_git_branch(cwd=Path.cwd())
+    payload = init_branch_sqlite(
+        branch=branch_name,
+        source_path=source_path,
+        target_dir=target_dir,
+        overwrite=overwrite,
+    )
+    typer.echo(json.dumps(payload, indent=2))
+
+
+@sqlite_app.command("merge")
+def sqlite_merge(
+    source_path: Path = typer.Argument(..., help="Branch SQLite DB to merge from"),
+    target_path: Path = typer.Argument(..., help="SQLite DB to merge into"),
+    include_retrieval_logs: bool = typer.Option(default=False, help="Also merge retrieval logs"),
+    apply: bool = typer.Option(default=False, help="Apply merge. Without this, merge is a dry run"),
+) -> None:
+    payload = merge_sqlite_databases(
+        source_path=source_path,
+        target_path=target_path,
+        include_retrieval_logs=include_retrieval_logs,
+        dry_run=not apply,
+    )
+    typer.echo(json.dumps(payload, indent=2))
+    if payload["conflicts"]:
         raise typer.Exit(code=1)
 
 

@@ -165,6 +165,8 @@ ARIADNE_DATABASE_URL=sqlite+pysqlite:///.ariadne/ariadne.db ariadne doctor
 ARIADNE_DATABASE_URL=sqlite+pysqlite:///.ariadne/ariadne.db ariadne scan-db-secrets
 ```
 
+For branch-specific SQLite DBs and moderated DB merges, see [docs/sqlite-branch-workflow.md](docs/sqlite-branch-workflow.md).
+
 ## MCP
 
 Ariadne can run as a local stdio MCP server for agent integrations.

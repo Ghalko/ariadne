@@ -8,7 +8,7 @@ from ariadne_index.bootstrap import build_services
 from ariadne_index.db import init_database, session_scope
 from ariadne_index.models.entities import Edge, Embedding, FileRecord, Memory, Repo, RetrievalLog, SymbolRecord
 from ariadne_index.schemas import MemoryCreate, RepoCreate
-from ariadne_index.services.db_migration import migrate_to_sqlite
+from ariadne_index.services.db_migration import init_branch_sqlite, merge_sqlite_databases, migrate_to_sqlite
 
 
 def test_migrate_to_sqlite_copies_ariadne_tables(tmp_path: Path, sample_repo: Path) -> None:
@@ -58,3 +58,63 @@ def test_migrate_to_sqlite_refuses_existing_target_without_overwrite(tmp_path: P
 
     with pytest.raises(FileExistsError):
         migrate_to_sqlite(source_database_url=source_url, target_path=target_path)
+
+
+def test_init_branch_sqlite_copies_seed_to_branch_named_path(tmp_path: Path) -> None:
+    source_path = tmp_path / "seed.sqlite"
+    source_path.write_bytes(b"seed")
+
+    result = init_branch_sqlite(
+        branch="feature/context work",
+        source_path=source_path,
+        target_dir=tmp_path / "branches",
+    )
+
+    target_path = tmp_path / "branches" / "feature-context-work.sqlite"
+    assert result["target"] == str(target_path)
+    assert target_path.read_bytes() == b"seed"
+
+
+def test_merge_sqlite_databases_merges_new_memory_without_binary_conflict(tmp_path: Path) -> None:
+    main_url = f"sqlite+pysqlite:///{tmp_path / 'main.sqlite'}"
+    branch_url = f"sqlite+pysqlite:///{tmp_path / 'branch.sqlite'}"
+    init_database(main_url)
+    init_database(branch_url)
+
+    with session_scope(main_url) as session:
+        services = build_services(session)
+        services["repos"].add_repo(RepoCreate(name="sample", local_path="/tmp/sample"))
+
+    migrate_to_sqlite(source_database_url=main_url, target_path=tmp_path / "branch-copy.sqlite")
+    (tmp_path / "branch-copy.sqlite").replace(tmp_path / "branch.sqlite")
+
+    with session_scope(branch_url) as session:
+        services = build_services(session)
+        repo = services["repos"].get_repo_by_name("sample")
+        services["memory"].create_memory(
+            MemoryCreate(
+                repo_id=repo.id,
+                title="Branch memory",
+                content="Preserve this branch-local decision.",
+                summary="Branch decision",
+                memory_type="decision",
+            )
+        )
+
+    dry_run = merge_sqlite_databases(
+        source_path=tmp_path / "branch.sqlite",
+        target_path=tmp_path / "main.sqlite",
+        dry_run=True,
+    )
+    assert dry_run["would_insert"]["memories"] == 1
+
+    applied = merge_sqlite_databases(
+        source_path=tmp_path / "branch.sqlite",
+        target_path=tmp_path / "main.sqlite",
+        dry_run=False,
+    )
+    assert applied["inserted"]["memories"] == 1
+
+    with session_scope(main_url) as session:
+        memories = session.query(Memory).all()
+        assert [memory.title for memory in memories] == ["Branch memory"]

@@ -278,6 +278,20 @@ We should not commit arbitrary SQLite runtime DBs. A curated seed DB is acceptab
 
 The scan checks secret-shaped file paths and unredacted secret-looking values in Ariadne text/JSON columns, embedding previews, and retrieval logs. This is not a substitute for mergeable memory export/import, but it gives us a safer bridge while DB files are being distributed.
 
+## Branch DB Merge Bridge
+
+Branch-specific SQLite DB files let Codex dogfood Ariadne against SQLite while preserving branch-local memory.
+
+Workflow:
+
+- copy `seed/ariadne.sqlite` to `seed/branches/<branch>.sqlite`
+- point Codex MCP at that branch DB
+- allow live memory/retrieval updates during branch work
+- before merge, run `ariadne sqlite merge branch.sqlite target.sqlite`
+- apply only after reviewing the dry-run counts/conflicts
+
+The first merge bridge maps rows by existing natural keys and skips retrieval logs unless explicit. This is acceptable only as a bridge. The real distributed model still wants UUIDs for memories, graph nodes, and edges plus mergeable memory export/import.
+
 ## TurboQuant Takeaways
 
 Google's TurboQuant work is relevant to Ariadne, but mainly as a future optimization to the semantic retrieval layer, not as a reason to change the architecture.
