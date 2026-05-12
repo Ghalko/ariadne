@@ -7,3 +7,4 @@ __pycache__/
 .pytest_cache/
 ariadne.db
 .ariadne/
+.DS_Store

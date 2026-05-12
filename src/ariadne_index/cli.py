@@ -17,6 +17,7 @@ from ariadne_index.services.db_migration import (
     merge_sqlite_databases,
     migrate_to_sqlite,
 )
+from ariadne_index.services.uuid_backfill import backfill_uuids
 
 app = typer.Typer(help="Repo indexing, graph retrieval, and durable memory.")
 memory_app = typer.Typer(help="Memory CRUD commands.")
@@ -293,6 +294,13 @@ def scan_db_secrets(
     typer.echo(json.dumps(payload, indent=2))
     if not payload["ok_to_distribute"]:
         raise typer.Exit(code=1)
+
+
+@app.command("backfill-uuids")
+def backfill_uuid_columns(database_url: str | None = typer.Option(default=None)) -> None:
+    with session_scope(database_url) as session:
+        payload = backfill_uuids(session)
+    typer.echo(json.dumps({"backfilled": payload}, indent=2))
 
 
 @sqlite_app.command("branch-path")

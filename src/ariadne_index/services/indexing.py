@@ -13,6 +13,7 @@ from ariadne_index.parsers.registry import ParserRegistry
 from ariadne_index.services.embeddings import EmbeddingProvider
 from ariadne_index.services.filesystem import discover_files, sha256_text
 from ariadne_index.services.graph import GraphService
+from ariadne_index.services.identity import file_uuid, symbol_uuid
 from ariadne_index.services.repository import RepoService
 from ariadne_index.services.secrets import SECRET_EXCLUDE_GLOBS, looks_like_secret_path, redact_secrets
 from ariadne_index.services.storage import upsert_embedding
@@ -145,6 +146,8 @@ class IndexingService:
             file_record = FileRecord(repo_id=repo.id, path=relative_path, checksum=checksum)
             self.session.add(file_record)
 
+        if not file_record.uuid:
+            file_record.uuid = file_uuid(repo.uuid or str(repo.id), relative_path)
         file_record.language = parsed.language
         file_record.checksum = checksum
         file_record.commit_sha = repo.current_commit_sha
@@ -171,7 +174,15 @@ class IndexingService:
 
         symbols_by_name: dict[str, SymbolRecord] = {}
         for parsed_symbol in parsed.symbols:
+            public_id = symbol_uuid(
+                file_record.uuid or str(file_record.id),
+                parsed_symbol.qualified_name,
+                parsed_symbol.name,
+                parsed_symbol.line_start,
+                parsed_symbol.line_end,
+            )
             symbol = SymbolRecord(
+                uuid=public_id,
                 repo_id=repo.id,
                 file_id=file_record.id,
                 name=parsed_symbol.name,

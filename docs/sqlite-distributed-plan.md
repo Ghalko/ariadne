@@ -145,6 +145,29 @@ Stable UUID generation:
 
 The deterministic UUID choices help distributed collaborators produce the same IDs for the same indexed artifact. Manual memories and reviewed edges should keep random UUIDs plus provenance.
 
+Current UUID identity slice:
+
+- graph-addressable tables have nullable `uuid` columns:
+  - `repos`
+  - `files`
+  - `symbols`
+  - `memories`
+  - `edges`
+  - `embeddings`
+  - `retrieval_logs`
+- `edges` also stores `from_node_uuid` and `to_node_uuid`
+- `embeddings` also stores `node_uuid`
+- new repo/file/symbol/memory/edge/embedding writes dual-write UUIDs
+- `ariadne backfill-uuids` adds missing UUID columns and backfills existing DB rows
+- SQLite merge prefers UUID identity before falling back to natural keys
+
+Remaining work:
+
+- move retrieval payloads and MCP APIs toward UUID-addressable node references
+- add UUIDs to exported memory/graph bundles
+- make UUID columns non-null after enough migration soak time
+- convert edge and embedding uniqueness constraints from integer node IDs to UUID node IDs
+
 ## Doctor and Update UX
 
 `ariadne doctor` should be read-only.
@@ -393,4 +416,4 @@ The first practical slice should be:
 9. Require `ariadne scan-db-secrets` before committing curated SQLite seed DB artifacts.
 10. Update README to make SQLite the public contributor default.
 
-After that lands, add UUID columns as a separate migration and dual-write them during indexing/memory creation.
+After that lands, harden UUIDs by making the columns non-null and moving more APIs to UUID-addressed nodes.

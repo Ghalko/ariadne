@@ -5,8 +5,9 @@ from collections import deque
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from ariadne_index.models.entities import Edge
+from ariadne_index.models.entities import Edge, FileRecord, Memory, Repo, SymbolRecord
 from ariadne_index.models.enums import EdgeType
+from ariadne_index.services.identity import edge_uuid
 
 
 class GraphService:
@@ -25,12 +26,18 @@ class GraphService:
         metadata_json: dict | None = None,
         weight: float = 1.0,
     ) -> Edge:
+        from_uuid = self._node_uuid(from_node_kind, from_node_id)
+        to_uuid = self._node_uuid(to_node_kind, to_node_id)
+        repo_uuid = self._repo_uuid(repo_id)
         edge = Edge(
+            uuid=edge_uuid(repo_uuid, from_uuid or str(from_node_id), to_uuid or str(to_node_id), edge_type.value, metadata_json or {}),
             repo_id=repo_id,
             from_node_kind=from_node_kind,
             from_node_id=from_node_id,
+            from_node_uuid=from_uuid,
             to_node_kind=to_node_kind,
             to_node_id=to_node_id,
+            to_node_uuid=to_uuid,
             edge_type=edge_type,
             metadata_json=metadata_json or {},
             weight=weight,
@@ -38,6 +45,24 @@ class GraphService:
         self.session.add(edge)
         self.session.flush()
         return edge
+
+    def _repo_uuid(self, repo_id: int | None) -> str | None:
+        if repo_id is None:
+            return None
+        repo = self.session.get(Repo, repo_id)
+        return repo.uuid if repo else None
+
+    def _node_uuid(self, node_kind: str, node_id: int) -> str | None:
+        model = {
+            "repo": Repo,
+            "file": FileRecord,
+            "symbol": SymbolRecord,
+            "memory": Memory,
+        }.get(node_kind)
+        if model is None:
+            return None
+        node = self.session.get(model, node_id)
+        return node.uuid if node else None
 
     def neighbors(
         self,

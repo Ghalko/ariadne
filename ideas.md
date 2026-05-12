@@ -290,7 +290,19 @@ Workflow:
 - before merge, run `ariadne sqlite merge branch.sqlite target.sqlite`
 - apply only after reviewing the dry-run counts/conflicts
 
-The first merge bridge maps rows by existing natural keys and skips retrieval logs unless explicit. This is acceptable only as a bridge. The real distributed model still wants UUIDs for memories, graph nodes, and edges plus mergeable memory export/import.
+The first merge bridge maps rows by UUIDs when present, falls back to existing natural keys, and skips retrieval logs unless explicit. This is acceptable only as a bridge. The real distributed model still wants UUID-backed memory export/import.
+
+## UUID Identity Slice
+
+The branch DB merge now has UUID identity support:
+
+- UUID columns exist for repos, files, symbols, memories, edges, embeddings, and retrieval logs
+- edge endpoint UUIDs and embedding node UUIDs are stored alongside integer IDs
+- new writes dual-write UUIDs
+- `ariadne backfill-uuids` upgrades existing DBs
+- SQLite merge prefers UUIDs before natural keys
+
+This specifically addresses the two-developer case where separate branch DBs create different rows with the same local integer IDs.
 
 ## TurboQuant Takeaways
 

@@ -29,6 +29,7 @@ class Repo(Base):
     __tablename__ = "repos"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str | None] = mapped_column(String(36), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     local_path: Mapped[str] = mapped_column(Text, unique=True)
     default_branch: Mapped[str | None] = mapped_column(String(255))
@@ -52,6 +53,7 @@ class FileRecord(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str | None] = mapped_column(String(36), unique=True, index=True)
     repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id", ondelete="CASCADE"), index=True)
     path: Mapped[str] = mapped_column(Text, index=True)
     language: Mapped[FileLanguage] = mapped_column(Enum(FileLanguage), default=FileLanguage.unknown)
@@ -75,6 +77,7 @@ class SymbolRecord(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str | None] = mapped_column(String(36), unique=True, index=True)
     repo_id: Mapped[int] = mapped_column(ForeignKey("repos.id", ondelete="CASCADE"), index=True)
     file_id: Mapped[int] = mapped_column(ForeignKey("files.id", ondelete="CASCADE"), index=True)
     parent_symbol_id: Mapped[int | None] = mapped_column(ForeignKey("symbols.id", ondelete="SET NULL"))
@@ -97,6 +100,7 @@ class Memory(Base):
     __table_args__ = (Index("ix_memory_type_status", "memory_type", "status"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str | None] = mapped_column(String(36), unique=True, index=True)
     repo_id: Mapped[int | None] = mapped_column(ForeignKey("repos.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(255), index=True)
     content: Mapped[str] = mapped_column(Text)
@@ -124,11 +128,14 @@ class Edge(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str | None] = mapped_column(String(36), index=True)
     repo_id: Mapped[int | None] = mapped_column(ForeignKey("repos.id", ondelete="CASCADE"), index=True)
     from_node_kind: Mapped[str] = mapped_column(String(64))
     from_node_id: Mapped[int] = mapped_column(Integer)
+    from_node_uuid: Mapped[str | None] = mapped_column(String(36), index=True)
     to_node_kind: Mapped[str] = mapped_column(String(64))
     to_node_id: Mapped[int] = mapped_column(Integer)
+    to_node_uuid: Mapped[str | None] = mapped_column(String(36), index=True)
     edge_type: Mapped[EdgeType] = mapped_column(Enum(EdgeType), index=True)
     weight: Mapped[float] = mapped_column(Float, default=1.0)
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -143,9 +150,11 @@ class Embedding(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str | None] = mapped_column(String(36), unique=True, index=True)
     repo_id: Mapped[int | None] = mapped_column(ForeignKey("repos.id", ondelete="CASCADE"), index=True)
     node_kind: Mapped[str] = mapped_column(String(64))
     node_id: Mapped[int] = mapped_column(Integer)
+    node_uuid: Mapped[str | None] = mapped_column(String(36), index=True)
     embedding_role: Mapped[str] = mapped_column(String(64), default="summary")
     model_name: Mapped[str] = mapped_column(String(255), default=settings.embedding_model)
     dimensions: Mapped[int] = mapped_column(Integer, default=settings.embedding_dimensions)
@@ -159,6 +168,7 @@ class RetrievalLog(Base):
     __table_args__ = (Index("ix_retrieval_logs_mode_created", "mode", "created_at"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    uuid: Mapped[str | None] = mapped_column(String(36), unique=True, index=True)
     repo_id: Mapped[int | None] = mapped_column(ForeignKey("repos.id", ondelete="SET NULL"), index=True)
     query_text: Mapped[str] = mapped_column(Text)
     mode: Mapped[str] = mapped_column(String(64), index=True)

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from ariadne_index.config import get_settings
 from ariadne_index.models.entities import Repo
 from ariadne_index.schemas import RepoCreate
+from ariadne_index.services.identity import repo_uuid
 
 
 class RepoService:
@@ -17,6 +18,7 @@ class RepoService:
 
     def add_repo(self, payload: RepoCreate) -> Repo:
         repo = Repo(
+            uuid=repo_uuid(payload.name),
             name=payload.name,
             local_path=str(Path(payload.local_path).expanduser().resolve()),
             default_branch=payload.default_branch,

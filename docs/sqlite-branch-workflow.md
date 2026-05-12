@@ -39,7 +39,7 @@ ariadne sqlite merge seed/branches/feature-x.sqlite seed/ariadne.sqlite
 ariadne sqlite merge seed/branches/feature-x.sqlite seed/ariadne.sqlite --apply
 ```
 
-The merge is dry-run by default. It maps rows by stable or natural keys:
+The merge is dry-run by default. It maps rows by UUID when present, then falls back to stable or natural keys:
 
 - repos by name
 - files by repo and path
@@ -70,4 +70,4 @@ Only commit if `doctor` has no issues and `scan-db-secrets` reports `ok_to_distr
 
 This is a bridge until UUID-backed memory export/import exists.
 
-The current merge works best when branch DBs descend from the same seed. It is not a general relational database merge engine, and it should be treated as moderated infrastructure for Ariadne's schema only.
+The current merge has UUID row identity for repos, files, symbols, memories, edges, embeddings, and retrieval logs. It still works best when branch DBs descend from the same seed. It is not a general relational database merge engine, and it should be treated as moderated infrastructure for Ariadne's schema only.

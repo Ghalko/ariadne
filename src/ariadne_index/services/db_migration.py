@@ -11,6 +11,8 @@ from sqlalchemy import delete, select, update
 
 from ariadne_index.db import build_engine
 from ariadne_index.models.base import Base
+from ariadne_index.services.uuid_backfill import backfill_uuids
+from ariadne_index.services.uuid_backfill import ensure_uuid_columns
 
 
 ARIADNE_TABLE_COPY_ORDER = [
@@ -61,19 +63,26 @@ def migrate_to_sqlite(
 
         for table_name in ARIADNE_TABLE_COPY_ORDER:
             table = Base.metadata.tables[table_name]
+            source_columns = _column_names(source, table_name)
             rows = [
-                {column.name: _portable_value(row._mapping[column.name]) for column in table.columns}
-                for row in source.execute(select(table).order_by(table.c.id))
+                {column.name: _portable_value(row._mapping[column.name]) for column in table.columns if column.name in source_columns}
+                for row in source.execute(select(*[table.c[name] for name in source_columns]).order_by(table.c.id))
             ]
             if rows:
                 target.execute(table.insert(), rows)
             copied[table_name] = len(rows)
+
+    from ariadne_index.db import session_scope
+
+    with session_scope(target_database_url) as session:
+        backfilled = backfill_uuids(session)
 
     return {
         "source_dialect": source_engine.dialect.name,
         "target_dialect": target_engine.dialect.name,
         "target_database_url": target_database_url,
         "copied": copied,
+        "uuid_backfilled": backfilled,
         "total_rows": sum(copied.values()),
     }
 
@@ -82,6 +91,18 @@ def _portable_value(value: Any) -> Any:
     if hasattr(value, "tolist"):
         return value.tolist()
     return value
+
+
+def _column_names(connection, table_name: str) -> list[str]:
+    dialect = connection.engine.dialect.name
+    if dialect == "sqlite":
+        rows = connection.exec_driver_sql(f"PRAGMA table_info({table_name})").all()
+        return [row[1] for row in rows]
+    rows = connection.exec_driver_sql(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = %s ORDER BY ordinal_position",
+        (table_name,),
+    ).all()
+    return [row[0] for row in rows]
 
 
 def current_git_branch(*, cwd: Path | None = None) -> str:
@@ -147,6 +168,8 @@ def merge_sqlite_databases(
 
     source_engine = build_engine(f"sqlite+pysqlite:///{source_path}")
     target_engine = build_engine(f"sqlite+pysqlite:///{target_path}")
+    _ensure_sqlite_uuid_schema(source_engine)
+    _ensure_sqlite_uuid_schema(target_engine)
     counts = {
         "repos": 0,
         "files": 0,
@@ -186,11 +209,12 @@ def merge_sqlite_databases(
 
 def _merge_repos(source, target, *, dry_run: bool, conflicts: list[dict], counts: dict[str, int]) -> dict[int, int]:
     table = Base.metadata.tables["repos"]
+    target_by_uuid = {row._mapping["uuid"]: row._mapping for row in target.execute(select(table)) if row._mapping["uuid"]}
     target_by_name = {row._mapping["name"]: row._mapping for row in target.execute(select(table))}
     id_map: dict[int, int] = {}
     for row in source.execute(select(table).order_by(table.c.id)):
         source_row = dict(row._mapping)
-        target_row = target_by_name.get(source_row["name"])
+        target_row = target_by_uuid.get(source_row.get("uuid")) or target_by_name.get(source_row["name"])
         if target_row is not None:
             id_map[source_row["id"]] = target_row["id"]
             if target_row["local_path"] != source_row["local_path"]:
@@ -211,13 +235,14 @@ def _merge_repos(source, target, *, dry_run: bool, conflicts: list[dict], counts
 
 def _merge_files(source, target, *, repo_id_map: dict[int, int], dry_run: bool, counts: dict[str, int]) -> dict[int, int]:
     table = Base.metadata.tables["files"]
+    target_by_uuid = {row._mapping["uuid"]: row._mapping["id"] for row in target.execute(select(table)) if row._mapping["uuid"]}
     target_by_key = {(row._mapping["repo_id"], row._mapping["path"]): row._mapping["id"] for row in target.execute(select(table))}
     id_map: dict[int, int] = {}
     for row in source.execute(select(table).order_by(table.c.id)):
         source_row = dict(row._mapping)
         source_row["repo_id"] = repo_id_map[source_row["repo_id"]]
         key = (source_row["repo_id"], source_row["path"])
-        existing_id = target_by_key.get(key)
+        existing_id = target_by_uuid.get(source_row.get("uuid")) or target_by_key.get(key)
         if existing_id is not None:
             id_map[row._mapping["id"]] = existing_id
             continue
@@ -237,6 +262,7 @@ def _merge_symbols(
     counts: dict[str, int],
 ) -> dict[int, int]:
     table = Base.metadata.tables["symbols"]
+    target_by_uuid = {row._mapping["uuid"]: row._mapping["id"] for row in target.execute(select(table)) if row._mapping["uuid"]}
     target_by_key = {
         (row._mapping["file_id"], row._mapping["name"], row._mapping["line_start"], row._mapping["line_end"]): row._mapping["id"]
         for row in target.execute(select(table))
@@ -250,7 +276,7 @@ def _merge_symbols(
         source_row["file_id"] = file_id_map[source_row["file_id"]]
         source_row["parent_symbol_id"] = None
         key = (source_row["file_id"], source_row["name"], source_row["line_start"], source_row["line_end"])
-        existing_id = target_by_key.get(key)
+        existing_id = target_by_uuid.get(source_row.get("uuid")) or target_by_key.get(key)
         if existing_id is not None:
             id_map[original["id"]] = existing_id
             continue
@@ -270,6 +296,7 @@ def _merge_symbols(
 
 def _merge_memories(source, target, *, repo_id_map: dict[int, int], dry_run: bool, counts: dict[str, int]) -> dict[int, int]:
     table = Base.metadata.tables["memories"]
+    target_by_uuid = {row._mapping["uuid"]: row._mapping["id"] for row in target.execute(select(table)) if row._mapping["uuid"]}
     target_by_key = {_memory_key(row._mapping): row._mapping["id"] for row in target.execute(select(table))}
     id_map: dict[int, int] = {}
     for row in source.execute(select(table).order_by(table.c.id)):
@@ -277,7 +304,7 @@ def _merge_memories(source, target, *, repo_id_map: dict[int, int], dry_run: boo
         if source_row["repo_id"] is not None:
             source_row["repo_id"] = repo_id_map[source_row["repo_id"]]
         key = _memory_key(source_row)
-        existing_id = target_by_key.get(key)
+        existing_id = target_by_uuid.get(source_row.get("uuid")) or target_by_key.get(key)
         if existing_id is not None:
             id_map[row._mapping["id"]] = existing_id
             continue
@@ -289,6 +316,7 @@ def _merge_memories(source, target, *, repo_id_map: dict[int, int], dry_run: boo
 
 def _merge_edges(source, target, *, repo_id_map: dict[int, int], node_maps: dict[str, dict[int, int]], dry_run: bool, counts: dict[str, int]) -> None:
     table = Base.metadata.tables["edges"]
+    target_uuids = {row._mapping["uuid"] for row in target.execute(select(table.c.uuid)) if row._mapping["uuid"]}
     target_keys = {_edge_key(row._mapping) for row in target.execute(select(table))}
     for row in source.execute(select(table).order_by(table.c.id)):
         source_row = dict(row._mapping)
@@ -296,6 +324,8 @@ def _merge_edges(source, target, *, repo_id_map: dict[int, int], node_maps: dict
         source_row["from_node_id"] = node_maps.get(source_row["from_node_kind"], {}).get(source_row["from_node_id"])
         source_row["to_node_id"] = node_maps.get(source_row["to_node_kind"], {}).get(source_row["to_node_id"])
         if source_row["from_node_id"] is None or source_row["to_node_id"] is None:
+            continue
+        if source_row.get("uuid") and source_row["uuid"] in target_uuids:
             continue
         key = _edge_key(source_row)
         if key in target_keys:
@@ -307,6 +337,7 @@ def _merge_edges(source, target, *, repo_id_map: dict[int, int], node_maps: dict
 
 def _merge_embeddings(source, target, *, repo_id_map: dict[int, int], node_maps: dict[str, dict[int, int]], dry_run: bool, counts: dict[str, int]) -> None:
     table = Base.metadata.tables["embeddings"]
+    target_uuids = {row._mapping["uuid"] for row in target.execute(select(table.c.uuid)) if row._mapping["uuid"]}
     target_keys = {
         (row._mapping["node_kind"], row._mapping["node_id"], row._mapping["embedding_role"])
         for row in target.execute(select(table.c.node_kind, table.c.node_id, table.c.embedding_role))
@@ -316,6 +347,8 @@ def _merge_embeddings(source, target, *, repo_id_map: dict[int, int], node_maps:
         source_row["repo_id"] = repo_id_map.get(source_row["repo_id"]) if source_row["repo_id"] is not None else None
         source_row["node_id"] = node_maps.get(source_row["node_kind"], {}).get(source_row["node_id"])
         if source_row["node_id"] is None:
+            continue
+        if source_row.get("uuid") and source_row["uuid"] in target_uuids:
             continue
         key = (source_row["node_kind"], source_row["node_id"], source_row["embedding_role"])
         if key in target_keys:
@@ -327,12 +360,15 @@ def _merge_embeddings(source, target, *, repo_id_map: dict[int, int], node_maps:
 
 def _merge_retrieval_logs(source, target, *, repo_id_map: dict[int, int], dry_run: bool, counts: dict[str, int]) -> None:
     table = Base.metadata.tables["retrieval_logs"]
+    target_uuids = {row._mapping["uuid"] for row in target.execute(select(table.c.uuid)) if row._mapping["uuid"]}
     target_keys = {
         (row._mapping["repo_id"], row._mapping["query_text"], row._mapping["mode"], row._mapping["created_at"])
         for row in target.execute(select(table.c.repo_id, table.c.query_text, table.c.mode, table.c.created_at))
     }
     for row in source.execute(select(table).order_by(table.c.id)):
         source_row = dict(row._mapping)
+        if source_row.get("uuid") and source_row["uuid"] in target_uuids:
+            continue
         if source_row["repo_id"] is not None:
             source_row["repo_id"] = repo_id_map.get(source_row["repo_id"])
         key = (source_row["repo_id"], source_row["query_text"], source_row["mode"], source_row["created_at"])
@@ -373,3 +409,10 @@ def _edge_key(row) -> tuple:
         row["edge_type"],
         json.dumps(row["metadata_json"] or {}, sort_keys=True, default=str),
     )
+
+
+def _ensure_sqlite_uuid_schema(engine) -> None:
+    from ariadne_index.db import session_scope
+
+    with session_scope(str(engine.url)) as session:
+        ensure_uuid_columns(session)

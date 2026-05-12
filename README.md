@@ -156,6 +156,7 @@ Control local DB growth:
 ariadne compact
 ariadne compact --apply --keep-retrieval-logs 100
 ariadne compact --apply --reindex --keep-retrieval-logs 100
+ariadne backfill-uuids
 ```
 
 Before distributing or committing a curated SQLite seed DB, run:
@@ -235,6 +236,7 @@ SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';
 - `ariadne migrate-postgres-to-sqlite` copies Ariadne application tables into a local SQLite file, preserving integer IDs so graph edges and embeddings remain connected.
 - `ariadne compact` prunes old retrieval logs and orphaned graph/vector rows, then runs SQLite `VACUUM` when applied.
 - `ariadne scan-db-secrets` fails if the DB has secret-shaped paths or unredacted secret-looking values.
+- `ariadne backfill-uuids` adds and populates UUID identity columns used by branch DB merges.
 - If your local DB is still on the older `vector(24)` schema, either recreate it at `1024` or temporarily run with `ARIADNE_EMBEDDING_DIMENSIONS=24`.
 - Set `ARIADNE_STRICT_DB_COMPATIBILITY=true` if you want Ariadne to fail fast when the configured embedding dimensions do not match the live DB.
 - `ariadne-mcp` speaks stdio MCP and is intended to be the dogfooding path for Codex and other MCP-capable agents.
